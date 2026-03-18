@@ -1,0 +1,29 @@
+rules:
+  list_comprehension:
+    description: "Replace simple list creation loops with list comprehensions for performance."
+    trigger_ast: "ast.For"
+    bad_example: |
+      result = []
+      for item in items:
+          if item > 10:
+              result.append(item * 2)
+    good_example: |
+      result = [item * 2 for item in items if item > 10]
+
+  loop_invariant_redundancy:
+    description: "Move constant expressions outside the loop to avoid redundant calculations."
+    trigger_ast: "ast.BinOp / ast.Call"
+    bad_example: |
+      for i in range(100):
+          # log(10) is calculated 100 times!
+          res = i * math.log(10)
+    good_example: |
+      const_log = math.log(10)
+      for i in range(100):
+          res = i * const_log
+
+  static_analysis_issue:
+    description: "General fix for an issue found by a static analysis tool (e.g., Ruff/Pylint)."
+    trigger_ast: "External Linter"
+    bad_example: "Varies by issue"
+    good_example: "Varies by issue"
