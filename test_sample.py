@@ -14,25 +14,19 @@ def matrix_multiply_inefficient(matrix_a, matrix_b):
     
     result = [[0 for _ in range(cols_b)] for _ in range(rows_a)]
     
-    for i in range(rows_a):
-        for j in range(cols_b):
-    for i in range(rows_a):
-        for j in range(cols_b):
-            for k in range(cols_a):
-        # Assuming matrix_a, matrix_b, and result are NumPy arrays.
-        # If they are standard Python lists of lists, they should be converted first:
-        # matrix_a = np.asarray(matrix_a_list)
-        # matrix_b = np.asarray(matrix_b_list)
-        # result = np.zeros((matrix_a.shape[0], matrix_b.shape[1])) # Or np.asarray(result_list) if pre-existing
+    import numpy as np
 
-        # This line replaces the two nested loops for a given 'i'
-        result[i, :] = np.dot(matrix_a[i, :], matrix_b)
+    # Assuming matrix_a and matrix_b are converted to NumPy arrays.
+    # For example, if they were lists of lists:
     # matrix_a_np = np.array(matrix_a)
     # matrix_b_np = np.array(matrix_b)
-    # result = matrix_a_np @ matrix_b_np
+    # Then use matrix_a_np and matrix_b_np below.
 
-    result = matrix_a @ matrix_b
-    # Alternatively: result = np.dot(matrix_a, matrix_b)
+    result = np.dot(matrix_a, matrix_b)
+    # Alternatively, using the @ operator (Python 3.5+):
+    # result = matrix_a @ matrix_b
+    
+    return result
 
 if __name__ == "__main__":
     data = [5, 12, 8, 20]

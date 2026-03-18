@@ -17,16 +17,19 @@ class CodeHunter(ast.NodeVisitor):
         self.matches: List[CodeMatch] = []
 
     def visit_For(self, node: ast.For):
-        # Rule: list_comprehension
-        if self._is_list_append_pattern(node):
-            self._add_match("list_comprehension", node)
-        
-        # Rule: unnecessary_nested_loops
+        # RULE PRECEDENCE:
+        # 1. Nested Loops (Big Impact: Algorithmic)
+        # 2. List Comprehension (Medium Impact: Pythonic)
+        # 3. Loop Invariant (Low Impact: Redundancy)
+
         if any(isinstance(child, ast.For) for child in node.body):
             self._add_match("unnecessary_nested_loops", node)
+            return # Skip lower-priority rules for this block
 
-        # Rule: loop_invariant_redundancy
-        # Look for calls or constant math inside the loop that could be hoisted
+        if self._is_list_append_pattern(node):
+            self._add_match("list_comprehension", node)
+            return 
+
         self._check_loop_invariants(node)
 
         self.generic_visit(node)
@@ -42,13 +45,14 @@ class CodeHunter(ast.NodeVisitor):
                 if isinstance(elt, ast.Name):
                     loop_vars.add(elt.id)
 
-        # Walk the body and find calls with constant arguments
-        for child in ast.walk(node):
-            if isinstance(child, ast.Call):
-                # If a call has only constant args and doesn't use loop variables
-                if self._is_invariant(child, loop_vars):
-                    self._add_match("loop_invariant_redundancy", child)
-                    break # Only one match per loop to avoid noise
+        # Walk the body (EXCLUDING the header) and find invariant calls
+        for child in node.body:
+            for sub_node in ast.walk(child):
+                if isinstance(sub_node, ast.Call):
+                    if self._is_invariant(sub_node, loop_vars):
+                        # Tag the whole loop for the LLM to hoist it
+                        self._add_match("loop_invariant_redundancy", node)
+                        return # One match per loop is enough
 
     def _is_invariant(self, node: ast.AST, loop_vars: set) -> bool:
         """Check if an expression uses any of the loop variables."""

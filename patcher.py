@@ -1,4 +1,6 @@
 import difflib
+import ast
+import os
 from rich.console import Console
 from rich.syntax import Syntax
 from rich.panel import Panel
@@ -12,12 +14,24 @@ class CodePatcher:
         self.file_path = file_path
         with open(file_path, "r") as f:
             self.lines = f.readlines()
+        self.backup_lines = list(self.lines)
+
+    def rollback(self) -> bool:
+        """Restores the file to the previous state."""
+        try:
+            with open(self.file_path, "w") as f:
+                f.writelines(self.backup_lines)
+            self.lines = list(self.backup_lines)
+            return True
+        except Exception as e:
+            console.print(f"[bold red]Rollback failed: {e}[/bold red]")
+            return False
 
     def show_diff(self, match: CodeMatch, opt_data: dict):
         optimized_code = opt_data["code"]
+        indented_opt = self._indent_code(optimized_code, match.indent)
         original = match.snippet
         
-        # Metadata panel
         console.print(Panel(
             f"[bold cyan]Focus:[/bold cyan] {opt_data.get('focus', 'N/A')}\n"
             f"[bold green]Estimated Speedup:[/bold green] [bold yellow]{opt_data.get('speedup', 'N/A')}[/bold yellow]\n\n"
@@ -26,8 +40,7 @@ class CodePatcher:
             border_style="blue"
         ))
 
-        # Diff panel
-        diff = difflib.ndiff(original.splitlines(), optimized_code.splitlines())
+        diff = difflib.ndiff(original.splitlines(), indented_opt.splitlines())
         diff_text = "\n".join(diff)
         
         console.print(Panel(
@@ -36,43 +49,74 @@ class CodePatcher:
             subtitle=f"File: {self.file_path}"
         ))
 
+    def _indent_code(self, code: str, indent_level: int) -> str:
+        lines = code.splitlines()
+        indented = []
+        for line in lines:
+            if line.strip():
+                indented.append((" " * indent_level) + line)
+            else:
+                indented.append("")
+        return "\n".join(indented)
+
     def apply_patch(self, match: CodeMatch, optimized_code: str) -> bool:
-        """Replace the lines in the original file, ensuring correct base indentation."""
+        self.backup_lines = list(self.lines)
         start_idx = match.start_line - 1
         end_idx = match.end_line
         
-        # Split the optimized code into lines
-        opt_lines = optimized_code.splitlines()
+        indented_lines = [l + "\n" for l in self._indent_code(optimized_code, match.indent).splitlines()]
         
-        # Heuristic: Find the minimum indentation in the LLM's response (ignoring empty lines)
-        non_empty_opt_lines = [l for l in opt_lines if l.strip()]
-        if not non_empty_opt_lines:
-            return False
-            
-        min_opt_indent = min(len(l) - len(l.lstrip()) for l in non_empty_opt_lines)
-        
-        # We want to adjust the code so that its base indentation is match.indent
-        indented_lines = []
-        for line in opt_lines:
-            if not line.strip():
-                indented_lines.append("\n")
-                continue
-                
-            # Relative indentation within the LLM's block
-            relative_indent = (len(line) - len(line.lstrip())) - min_opt_indent
-            # Final indentation = base match.indent + relative
-            final_line = (" " * (match.indent + relative_indent)) + line.lstrip()
-            indented_lines.append(final_line + "\n")
-            
-        self.lines[start_idx:end_idx] = indented_lines
+        temp_lines = list(self.lines)
+        temp_lines[start_idx:end_idx] = indented_lines
+        temp_source = "".join(temp_lines)
         
         try:
+            ast.parse(temp_source)
+            self.lines = temp_lines
             with open(self.file_path, "w") as f:
                 f.writelines(self.lines)
             return True
-        except Exception as e:
-            console.print(f"[bold red]Error writing to file: {e}[/bold red]")
+        except SyntaxError as e:
+            console.print(f"[bold red]Safety check failed: LLM generated invalid Python code ({e}). Skipping.[/bold red]")
             return False
+
+    def finalize_imports(self):
+        """Moves all nested imports to the top of the file, following PEP8."""
+        source = "".join(self.lines)
+        tree = ast.parse(source)
+        
+        found_imports = []
+        lines_to_remove = set()
+
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.Import, ast.ImportFrom)):
+                # If it's not at the top level (col_offset > 0) or it's inside a function
+                # For simplicity, we move ALL imports to the top and deduplicate them
+                import_stmt = ast.get_source_segment(source, node)
+                if import_stmt:
+                    found_imports.append(import_stmt)
+                    # Mark lines for removal
+                    for i in range(node.lineno, node.end_lineno + 1):
+                        lines_to_remove.add(i - 1)
+
+        if not found_imports:
+            return
+
+        # Deduplicate while preserving order
+        unique_imports = []
+        for imp in found_imports:
+            if imp not in unique_imports:
+                unique_imports.append(imp)
+
+        # Remove old import lines
+        new_lines = [line for i, line in enumerate(self.lines) if i not in lines_to_remove]
+        
+        # Add them to the top (with a newline)
+        final_code = [imp + "\n" for imp in unique_imports] + ["\n"] + new_lines
+        
+        with open(self.file_path, "w") as f:
+            f.writelines(final_code)
+        self.lines = final_code
 
     def ask_confirmation(self) -> bool:
         return Confirm.ask("Apply this optimization?", default=False)

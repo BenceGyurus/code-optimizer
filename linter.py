@@ -6,9 +6,15 @@ from hunter import CodeMatch
 def run_ruff_linter(file_path: str) -> List[CodeMatch]:
     """Runs ruff linter on the file and returns a list of CodeMatch objects."""
     try:
+        # Try to find ruff executable
+        import shutil
+        ruff_bin = shutil.which("ruff")
+        if not ruff_bin:
+            return []
+
         # Run ruff check with JSON output
         result = subprocess.run(
-            ["ruff", "check", "--format", "json", "--select", "ALL", file_path],
+            [ruff_bin, "check", "--format", "json", "--select", "ALL", file_path],
             capture_output=True,
             text=True
         )
