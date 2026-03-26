@@ -57,10 +57,10 @@ class CodeHunter(ast.NodeVisitor):
             elif isinstance(child, ast.AugAssign) and isinstance(child.target, ast.Name):
                 loop_vars.add(child.target.id)
 
-        # Walk the body (EXCLUDING the header) and find invariant calls
+        # Walk the body (EXCLUDING the header) and find invariant expressions
         for child in node.body:
             for sub_node in ast.walk(child):
-                if isinstance(sub_node, ast.Call):
+                if isinstance(sub_node, (ast.Call, ast.BinOp)):
                     if self._is_invariant(sub_node, loop_vars):
                         # Tag the whole loop for the LLM to hoist it
                         self._add_match("loop_invariant_redundancy", node)
