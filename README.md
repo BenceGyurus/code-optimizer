@@ -26,8 +26,8 @@ graph TD
     B1 --> C[Találatok gyűjtése]
     B2 --> C
     
-    C --> D[Few-shot Prompt építés]
-    D --> E[LLM Gateway: Gemini / Ollama]
+    C --> D[Rekurzív Micro-prompt építés]
+    D --> E[LLM Gateway: Local / Remote]
     
     E --> F[Optimalizált kódblokk + Metaadatok]
     
@@ -68,6 +68,20 @@ python cli.py main.py --test-cmd "python tests.py"
 - `--test-cmd`: A verifikációhoz használt parancs.
 - `--git-branch`: Új git ág és commitok minden módosításhoz.
 - `--allow-edit` / `-y`: Automatikus javítás (interaktív módban is).
+- `--allow-remote`: Remote LLM fallback engedélyezése.
+- `--remote-model`: Remote LLM modell az eskalációhoz.
+- `--max-remote-file-percent`: Fájlonként max. küldhető kód százalék.
+- `--recursive-max-steps`: Rekurzív próbálkozások száma a kis modellen.
+- `--decision-models`: Vesszővel elválasztott döntési modellek (rerank/verify).
+- `--no-cache`: Optimalizációs cache kikapcsolása (teszteléshez ajánlott).
+- `--rollback-on-fail`: Automatikus rollback teszthiba esetén.
+- `--repair-mode`: Teszt-hiba esetén teljes fájlos javítási próbálkozás (repair pipeline).
+- `--safe-only`: Csak determinisztikus, biztonságos optimalizálások futtatása.
+- `--micro-steps`: Rekurzív micro-lépések száma snippetenként (kicsi modellekhez).
+- `--max-slice-lines`: Max sorok száma LLM-nek küldött snippetben.
+- `--debug-matches`: Részletes találat/skip log a diagnosztikához (alapból is listázza a match-ek számát).
+- `--retrieval-top-k`: Heurisztikus top-k rule jelöltek (RAG-szerű előszűrés).
+- A futtatás végén külön statisztikák jelennek meg a no-op, kihagyott szabályok és rollback esetekről.
 
 ---
 
@@ -81,3 +95,14 @@ pip install ruff
 
 ## 📊 Statisztikák
 A futtatás végén az OptiCode egy összefoglaló táblázatot mutat a felhasznált tokenekről és a becsült költségről.
+
+---
+
+## 🔧 Copilot modellek konfigurálása
+Alapból fix Copilot modell lista van, de felülírható környezeti változóval:
+
+```bash
+export COPILOT_MODELS="copilot/gpt-4o,copilot/claude-3.5-sonnet,copilot/gpt-5.2-codex"
+```
+
+Ezután a CLI ebből a listából kínál választást.

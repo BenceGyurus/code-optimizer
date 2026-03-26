@@ -1,0 +1,54 @@
+# OpenCode Decisions Log
+
+## 2026-03-25
+- Decision: OPENCODE.md is a historical log; append-only entries describing actions and outcomes without rewriting or “fixing” past items.
+- Decision: Prioritize heuristic (AST/static) logic and use LLM only when deterministic rules cannot safely decide; document all similar decisions here going forward.
+- Decision: Hunter stays 100% LLM-free; add a decision gate before optimization, use local RAG first, and allow remote LLM only behind a flag with a per-file context percent cap (default target: 20%).
+- Decision: Prefer small-model-friendly, recursive prompting: decompose tasks into minimal steps, validate each step (AST parse/tests/safety rules), and only escalate context or model size when verification fails.
+- Decision: Prompt engineering log model = github-copilot/gpt-5.2-codex (OpenCode runtime model for this session).
+- Decision: Local model for prompt engineering log = Ollama (llama3.1:8b); remote model = Gemini 1.5 Pro.
+- Decision: Implement recursive micro-prompt pipeline (local model first) with per-step syntax validation and self-verification; only escalate to remote model behind --allow-remote and per-file context percent cap, tracked in stats.
+- Decision: Decision models can be a list (for rerank/verify), allowing larger models for adjudication while keeping optimization on smaller models.
+- Decision: Add test fixture module and pytest coverage under test/ to validate complex optimization scenarios; log test command and results after execution.
+- Test: `source .venv/bin/activate && python -m pytest -q test/test_complex_module.py` -> passed (5 passed in 0.01s).
+- Test: `pytest -q test/test_complex_module.py` -> failed (ModuleNotFoundError: `test.complex_module`); fix: add `test/__init__.py` and use relative import in `test/test_complex_module.py`.
+- Test: `python cli.py optimize test/complex_module.py --allow-edit --test-cmd "pytest -q test/test_complex_module.py"` -> failed (unexpected extra argument `test/complex_module.py`); command should be `python cli.py test/complex_module.py --allow-edit --test-cmd "pytest -q test/test_complex_module.py"` because the CLI uses a single default command.
+- Test: `python cli.py test/complex_module.py --allow-edit --test-cmd "pytest -q test/test_complex_module.py"` -> optimization caused repeated test failures during loop_invariant_redundancy and unnecessary_nested_loops passes; rollbacks were skipped initially (user answered n) and later accepted (y). Session stats: tokens 0, cost $0.0169, files modified 1, local calls 8, remote calls 0, verify calls 8, decision calls 8.
+- Test: `python cli.py test/complex_module.py --allow-edit --test-cmd "pytest -q test/test_complex_module.py" --rollback-on-fail` -> applied cached suggestions for loop_invariant_redundancy and unnecessary_nested_loops; session stats showed zeros (tokens/calls/files), indicating cached/no-op path; tests did not report failure in output.
+- Decision: Add --no-cache option, skip loop_invariant_redundancy when tests are enabled, and guard against alias-only no-op patches.
+- Decision: Introduced intentional logic defects in `test/complex_module.py` to validate optimizer behavior on failing tests.
+- Test: `python cli.py test/complex_module.py --allow-edit --test-cmd "pytest -q test/test_complex_module.py" --rollback-on-fail --no-cache` -> applied unnecessary_nested_loops rewrite, ran tests, session stats: tokens 0, cost $0.0001, files modified 0, local calls 1, verify calls 1; no failure message printed, but net file change was 0.
+- Test: `python cli.py test/complex_module.py --allow-edit --test-cmd "pytest -q test/test_complex_module.py" --rollback-on-fail --no-cache` -> rollback triggered, test output captured (4 failures, 1 passed), stats: no-op 0, rules skipped 1, rollbacks 1, local calls 1, verify calls 1.
+- Decision: Add explicit rollback logging, test output capture on failure, and stats for no-op/skip/rollback to clarify outcomes.
+- Decision: Split optimize vs repair modes; add --repair-mode to run test-driven full-file repair after rollback.
+- Decision: Add safe-only deterministic optimization path with AST-based rewrites; default LLM path remains optional.
+- Decision: Implement micro-step limits and snippet size caps for small-model (4–8B) viability, plus strict LLM guardrails.
+- Decision: Fix loop-invariant heuristic by including assigned variables inside loop body in the loop-var set to avoid false positives.
+- Decision: Add --debug-matches to log rule matches and skip reasons for diagnosing "no-op" optimization runs.
+- Decision: Add heuristic RAG-like rule retrieval (token-based vectors from rules.yaml examples) to prefilter candidates before LLM.
+- Decision: Only skip loop_invariant_redundancy in safe-only mode; allow LLM path to handle it in test mode.
+- Action: Added multi-file test fixture under `test/mega_app/` with >1000 lines and intentional optimization antipatterns for benchmarking.
+- Fix: After applying a patch, restart the pass to avoid using stale line ranges that caused syntax errors in subsequent matches.
+- Test: `source .venv/bin/activate && python -m pytest -q` -> failed (ModuleNotFoundError: `numpy`, triggered via `complex_sample.py` imported by `test_logic.py`).
+- Fix: Make numpy optional in `complex_sample.py` and remove side-effect timing code from `find_duplicates_slow` to avoid test import errors.
+- Fix: Restore expected `analyze_sensor_data` math (use 1/log(10) instead of sqrt(log(10))) to satisfy `test_logic.py`.
+- Fix: Convert `test_logic.py` from manual exit-based script to pytest tests to avoid SystemExit collection errors.
+- Fix: Replace list-comprehension uniqueness bug in `example/math_ops.py` with set-based O(N) ordered unique extraction to satisfy tests.
+- Test: `python cli.py test/mega_app ...` -> rate-limited on GitHub Marketplace model (`UserByModelByDay` limit exceeded), LLM calls failed with RateLimitError.
+- Decision: Increase runtime visibility by always printing match counts and skip reasons; keep --debug-matches for per-match detail.
+- Decision: Extend heuristics to detect list-uniqueness loops and map them to unnecessary_nested_loops for deterministic set-based rewrites.
+- Fix: Deterministic uniqueness rewrite now emits properly indented string output to avoid syntax errors during patching.
+- Test: `python cli.py test/mega_app/mega_module.py --safe-only --allow-edit --rollback-on-fail --no-cache --test-cmd "python -m pytest -q" --max-passes 10` -> deterministic rewrites applied each pass, tests ran after each patch, no LLM calls (safe-only), no rollbacks.
+- Action: Expanded rules.yaml with set_based_uniqueness and sum_reduction examples to improve rule retrieval and prompts.
+- Action: Add `copilot/gpt-5.2-codex` to default Copilot model list in CLI and README example.
+- Action: Add `github_copilot/gpt-5.1-codex` to default Copilot model list and README example (requested due to prior model not working).
+- Note: `github_copilot/gpt-5.1-codex` returned BadRequest (not accessible via /chat/completions); removed from default Copilot list.
+- Fix: Handle GPT-5 model temperature constraints by forcing temperature=1 and enabling litellm.drop_params for gpt-5 models.
+- Fix: Normalize copilot/* model IDs to github_copilot/* for litellm to avoid provider-not-provided errors.
+- Fix: Add fallback to gemini-1.5-flash-latest when gemini-1.5-pro-latest is unavailable (NOT_FOUND).
+- Action: Add gemini-2-flash-lite to Gemini model selection list.
+- Fix: Extend Gemini fallback chain (2-flash-lite -> 2.0-flash-exp -> 1.5-flash-latest) on NOT_FOUND errors.
+- Decision: Copilot model list remains static by default but can be overridden via COPILOT_MODELS env var.
+- Fix: Restored correct business logic in `test/complex_module.py` (tax, totals, top_n handling, normalization) to satisfy tests.
+- Test: `pytest -q test/test_complex_module.py` -> failed (pytest not installed: `command not found: pytest`).
+- Decision: Add failure cache and auto-rollback option to prevent repeating patches that fail tests.

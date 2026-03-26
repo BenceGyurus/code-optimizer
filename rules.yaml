@@ -10,20 +10,65 @@ rules:
     good_example: |
       result = [item * 2 for item in items if item > 10]
 
+  unnecessary_nested_loops:
+    description: "Algorithmic optimization for nested loops. Use sets for O(1) lookups or NumPy for vectorization."
+    trigger_ast: "ast.For"
+    bad_example: |
+      # O(N^2) complexity due to 'in' check in a list
+      unique = []
+      for item in items:
+          if item not in unique:
+              unique.append(item)
+    good_example: |
+      # O(N) complexity using a set for lookups
+      seen = set()
+      unique = []
+      for item in items:
+          if item not in seen:
+              unique.append(item)
+              seen.add(item)
+
   loop_invariant_redundancy:
-    description: "Move constant expressions outside the loop to avoid redundant calculations."
+    description: "Move constant expressions outside the loop. DO NOT move expressions depending on loop variables."
     trigger_ast: "ast.BinOp / ast.Call"
     bad_example: |
-      for i in range(100):
-          # log(10) is calculated 100 times!
-          res = i * math.log(10)
+      for x in data:
+          # math.log(2) is constant, but math.sqrt(x) depends on x!
+          val = x * math.sqrt(x) / math.log(2)
     good_example: |
-      const_log = math.log(10)
-      for i in range(100):
-          res = i * const_log
+      log2 = math.log(2)
+      for x in data:
+          # Only the constant part is moved
+          val = x * math.sqrt(x) / log2
+
+  set_based_uniqueness:
+    description: "Replace O(N^2) uniqueness checks using list membership with a set-backed O(N) approach while preserving order."
+    trigger_ast: "ast.For + ast.If + NotIn"
+    bad_example: |
+      unique = []
+      for item in items:
+          if item not in unique:
+              unique.append(item)
+    good_example: |
+      unique = []
+      seen = set()
+      for item in items:
+          if item not in seen:
+              seen.add(item)
+              unique.append(item)
+
+  sum_reduction:
+    description: "Replace manual accumulation loops with a sum() over a generator when safe."
+    trigger_ast: "ast.For + ast.AugAssign"
+    bad_example: |
+      total = 0.0
+      for value in values:
+          total += float(value)
+    good_example: |
+      total = sum(float(value) for value in values)
 
   static_analysis_issue:
-    description: "General fix for an issue found by a static analysis tool (e.g., Ruff/Pylint)."
+    description: "General fix for an issue found by a static analysis tool (e.g., Ruff)."
     trigger_ast: "External Linter"
     bad_example: "Varies by issue"
     good_example: "Varies by issue"

@@ -51,12 +51,7 @@ class CodePatcher:
 
     def _indent_code(self, code: str, indent_level: int) -> str:
         lines = code.splitlines()
-        indented = []
-        for line in lines:
-            if line.strip():
-                indented.append((" " * indent_level) + line)
-            else:
-                indented.append("")
+        indented = [(" " * indent_level) + line if line.strip() else "" for line in lines]
         return "\n".join(indented)
 
     def apply_patch(self, match: CodeMatch, optimized_code: str) -> bool:
@@ -80,23 +75,38 @@ class CodePatcher:
             console.print(f"[bold red]Safety check failed: LLM generated invalid Python code ({e}). Skipping.[/bold red]")
             return False
 
+    def apply_full_rewrite(self, optimized_code: str) -> bool:
+        self.backup_lines = list(self.lines)
+        temp_source = optimized_code
+        try:
+            ast.parse(temp_source)
+            with open(self.file_path, "w") as f:
+                f.write(temp_source if temp_source.endswith("\n") else temp_source + "\n")
+            self.lines = temp_source.splitlines(keepends=True)
+            return True
+        except SyntaxError as e:
+            console.print(f"[bold red]Safety check failed: LLM generated invalid Python code ({e}). Skipping.[/bold red]")
+            return False
+
     def finalize_imports(self):
         """Moves all nested imports to the top of the file, following PEP8."""
         source = "".join(self.lines)
-        tree = ast.parse(source)
-        
+        try:
+            tree = ast.parse(source)
+        except:
+            return
+
         found_imports = []
         lines_to_remove = set()
 
         for node in ast.walk(tree):
             if isinstance(node, (ast.Import, ast.ImportFrom)):
-                # If it's not at the top level (col_offset > 0) or it's inside a function
-                # For simplicity, we move ALL imports to the top and deduplicate them
                 import_stmt = ast.get_source_segment(source, node)
                 if import_stmt:
                     found_imports.append(import_stmt)
-                    # Mark lines for removal
-                    for i in range(node.lineno, node.end_lineno + 1):
+                    node_start = node.lineno or 1
+                    node_end = node.end_lineno or node_start
+                    for i in range(node_start, node_end + 1):
                         lines_to_remove.add(i - 1)
 
         if not found_imports:
@@ -108,15 +118,18 @@ class CodePatcher:
             if imp not in unique_imports:
                 unique_imports.append(imp)
 
-        # Remove old import lines
+        # Remove old import lines and clean up the code
         new_lines = [line for i, line in enumerate(self.lines) if i not in lines_to_remove]
         
         # Add them to the top (with a newline)
         final_code = [imp + "\n" for imp in unique_imports] + ["\n"] + new_lines
         
-        with open(self.file_path, "w") as f:
-            f.writelines(final_code)
-        self.lines = final_code
+        try:
+            with open(self.file_path, "w") as f:
+                f.writelines(final_code)
+            self.lines = final_code
+        except Exception as e:
+            console.print(f"[bold red]Failed to finalize imports: {e}[/bold red]")
 
     def ask_confirmation(self) -> bool:
         return Confirm.ask("Apply this optimization?", default=False)

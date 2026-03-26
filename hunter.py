@@ -26,6 +26,10 @@ class CodeHunter(ast.NodeVisitor):
             self._add_match("unnecessary_nested_loops", node)
             return # Skip lower-priority rules for this block
 
+        if self._is_uniqueness_pattern(node):
+            self._add_match("unnecessary_nested_loops", node)
+            return
+
         if self._is_list_append_pattern(node):
             self._add_match("list_comprehension", node)
             return 
@@ -44,6 +48,14 @@ class CodeHunter(ast.NodeVisitor):
             for elt in node.target.elts:
                 if isinstance(elt, ast.Name):
                     loop_vars.add(elt.id)
+
+        for child in node.body:
+            if isinstance(child, ast.Assign):
+                for target in child.targets:
+                    if isinstance(target, ast.Name):
+                        loop_vars.add(target.id)
+            elif isinstance(child, ast.AugAssign) and isinstance(child.target, ast.Name):
+                loop_vars.add(child.target.id)
 
         # Walk the body (EXCLUDING the header) and find invariant calls
         for child in node.body:
@@ -72,6 +84,38 @@ class CodeHunter(ast.NodeVisitor):
                 if isinstance(inner, ast.Expr) and isinstance(inner.value, ast.Call):
                     return self._is_append_call(inner.value)
         return False
+
+    def _is_uniqueness_pattern(self, node: ast.For) -> bool:
+        body = node.body
+        if len(body) != 1:
+            return False
+        if_node = body[0]
+        if not isinstance(if_node, ast.If) or if_node.orelse:
+            return False
+        if len(if_node.body) != 1:
+            return False
+        test = if_node.test
+        if not isinstance(test, ast.Compare) or len(test.ops) != 1:
+            return False
+        if not isinstance(test.ops[0], ast.NotIn):
+            return False
+        if len(test.comparators) != 1:
+            return False
+        left = test.left
+        right = test.comparators[0]
+        if not isinstance(left, ast.Name) or not isinstance(right, ast.Name):
+            return False
+        inner = if_node.body[0]
+        if not isinstance(inner, ast.Expr) or not isinstance(inner.value, ast.Call):
+            return False
+        call = inner.value
+        if not (isinstance(call.func, ast.Attribute) and call.func.attr == "append"):
+            return False
+        if not isinstance(call.func.value, ast.Name):
+            return False
+        if call.func.value.id != right.id:
+            return False
+        return True
 
     def _is_append_call(self, call: ast.Call) -> bool:
         return (isinstance(call.func, ast.Attribute) and 
