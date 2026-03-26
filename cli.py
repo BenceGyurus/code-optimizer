@@ -291,7 +291,7 @@ def optimize(
                     patcher.show_diff(best_match, opt_data)
                 
                 if ci or allow_edit or patcher.ask_confirmation():
-                    if patcher.apply_patch(best_match, opt_data["code"]):
+                    if patcher.apply_patch(best_match, opt_data["code"], opt_data.get("folded_parts")):
                         if not ci: console.print(f"[green]Applied {best_match.rule_id}[/green]")
                         if test_cmd:
                             test_result = run_tests(test_cmd)
@@ -368,6 +368,7 @@ def optimize(
     table.add_row("Local Calls", str(optimizer.local_calls))
     table.add_row("Remote Calls", str(optimizer.remote_calls))
     table.add_row("Verify Calls", str(optimizer.verify_calls))
+    table.add_row("Context Folded", str(optimizer.remote_folded_count))
     table.add_row("Remote Skipped (%)", str(optimizer.remote_skipped_due_to_percent))
     table.add_row("Decision Calls", str(optimizer.decision_calls))
     console.print(table)

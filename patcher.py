@@ -1,6 +1,8 @@
 import difflib
 import ast
 import os
+import re
+from typing import Dict, Optional
 from rich.console import Console
 from rich.syntax import Syntax
 from rich.panel import Panel
@@ -54,12 +56,54 @@ class CodePatcher:
         indented = [(" " * indent_level) + line if line.strip() else "" for line in lines]
         return "\n".join(indented)
 
-    def apply_patch(self, match: CodeMatch, optimized_code: str) -> bool:
+    def unfold_code(self, code: str, folded_parts: Dict[str, str]) -> str:
+        """Replaces folded block markers with original code blocks."""
+        unfolded = code
+        # Pattern to match the string constant placeholder we used in _fold_snippet
+        # The pattern looks for '[OPTICODE_FOLDED_BLOCK: <UUID>]'
+        # We need to find the line that contains it, and replace it with the original lines,
+        # preserving the indentation of the placeholder.
+        
+        lines = unfolded.splitlines()
+        new_lines = []
+        for line in lines:
+            # Pattern to match '[OPTICODE_FOLDED_BLOCK: <UUID>]' or "[OPTICODE_FOLDED_BLOCK: <UUID>]"
+            match = re.search(r"[\'\"]\[OPTICODE_FOLDED_BLOCK:\s*([\w-]+)\][\'\"]", line)
+            
+            if match:
+                u_id = match.group(1)
+                if u_id in folded_parts:
+                    # Capture the indentation before the placeholder
+                    indent_match = re.match(r"^\s*", line)
+                    indent_str = indent_match.group(0) if indent_match else ""
+                    
+                    original_block = folded_parts[u_id]
+                    # Indent each line of the original block to match the placeholder
+                    # Note: original_block might already have some internal relative indentation
+                    indented_lines = []
+                    for b_line in original_block.splitlines():
+                        if b_line.strip():
+                            indented_lines.append(indent_str + b_line)
+                        else:
+                            indented_lines.append("")
+                    new_lines.append("\n".join(indented_lines))
+                else:
+                    new_lines.append(line)
+            else:
+                new_lines.append(line)
+        
+        return "\n".join(new_lines)
+
+    def apply_patch(self, match: CodeMatch, optimized_code: str, folded_parts: Optional[Dict[str, str]] = None) -> bool:
         self.backup_lines = list(self.lines)
         start_idx = match.start_line - 1
         end_idx = match.end_line
         
-        indented_lines = [l + "\n" for l in self._indent_code(optimized_code, match.indent).splitlines()]
+        final_code = optimized_code
+        if folded_parts:
+            final_code = self.unfold_code(final_code, folded_parts)
+
+        indented_lines = [l + "\n" for l in self._indent_code(final_code, match.indent).splitlines()]
         
         temp_lines = list(self.lines)
         temp_lines[start_idx:end_idx] = indented_lines

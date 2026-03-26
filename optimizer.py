@@ -5,7 +5,8 @@ import hashlib
 import json
 import re
 import ast
-from typing import Dict, Optional, List, Tuple, Any
+import uuid
+from typing import Dict, Optional, List, Tuple, Any, Tuple
 from hunter import CodeMatch
 from rich.console import Console
 from rich.panel import Panel
@@ -49,6 +50,8 @@ class Optimizer:
         self.verify_calls = 0
         self.decision_calls = 0
         self.remote_skipped_due_to_percent = 0
+        self.remote_folded_count = 0
+        self.folded_parts: Dict[str, str] = {}
 
         self.micro_system_prompt = (
             "You are a precise code optimizer. "
@@ -60,7 +63,8 @@ class Optimizer:
             "5. NEVER leave a loop or if-statement without an indented body.\n"
             "6. [SAFETY] NEVER hoist expressions that depend on the loop variable outside the loop.\n"
             "7. [SAFETY] NEVER use a list comprehension for operations that depend on the updated state of the list during the loop (e.g., uniqueness checks). Use sets instead for O(N) performance.\n"
-            "8. If you are unsure or cannot safely optimize, return <optimized_code>NO_CHANGE</optimized_code>."
+            "8. [FOLDED BLOCKS] NEVER remove, change, or rename markers like '[OPTICODE_FOLDED_BLOCK: <UUID>]'. If you see one, keep it exactly as it is in the resulting code.\n"
+            "9. If you are unsure or cannot safely optimize, return <optimized_code>NO_CHANGE</optimized_code>."
         )
 
         self.repair_system_prompt = (
@@ -125,6 +129,71 @@ class Optimizer:
     def _save_fail_cache(self):
         with open(self.fail_cache_file, "w") as f:
             json.dump(self.fail_cache, f, indent=2)
+
+    def _fold_snippet(self, snippet: str, threshold: int = 15) -> str:
+        self.folded_parts = {}
+        try:
+            tree = ast.parse(snippet)
+        except SyntaxError:
+            return snippet
+
+        modified_ref = [False]
+        
+        class Folder(ast.NodeTransformer):
+            def __init__(self, optimizer):
+                self.optimizer = optimizer
+
+            def _handle_body(self, node, body_attr):
+                body = getattr(node, body_attr)
+                if not isinstance(body, list) or len(body) <= 1:
+                    return
+
+                # Estimate lines
+                try:
+                    start_line = body[0].lineno
+                    end_line = body[-1].end_lineno
+                    if start_line is not None and end_line is not None:
+                        if (end_line - start_line + 1) > threshold:
+                            original_code = ast.unparse(body)
+                            u_id = str(uuid.uuid4())[:8]
+                            # Use a string constant that looks like a comment for the LLM
+                            placeholder = f"[OPTICODE_FOLDED_BLOCK: {u_id}]"
+                            self.optimizer.folded_parts[u_id] = original_code
+                            
+                            new_body = [ast.Expr(value=ast.Constant(value=placeholder))]
+                            setattr(node, body_attr, new_body)
+                            modified_ref[0] = True
+                except:
+                    pass
+
+            def visit_For(self, node):
+                self.generic_visit(node)
+                self._handle_body(node, "body")
+                return node
+
+            def visit_If(self, node):
+                self.generic_visit(node)
+                self._handle_body(node, "body")
+                self._handle_body(node, "orelse")
+                return node
+
+            def visit_While(self, node):
+                self.generic_visit(node)
+                self._handle_body(node, "body")
+                return node
+                
+            def visit_FunctionDef(self, node):
+                self.generic_visit(node)
+                self._handle_body(node, "body")
+                return node
+
+        folder = Folder(self)
+        for node in tree.body:
+            folder.visit(node)
+            
+        if modified_ref[0]:
+            return ast.unparse(tree)
+        return snippet
 
     def _get_hash(self, snippet: str, rule_id: str, model: str) -> str:
         return hashlib.md5(f"{rule_id}:{model}:{snippet}".encode()).hexdigest()
@@ -815,13 +884,28 @@ Respond ONLY with the RULE_ID of the best rule.
             return self.cache[snippet_hash]
 
         try:
-            local_result = self._attempt_recursive_optimize(
-                local_model,
-                rule_id,
-                rule.get("description", ""),
-                clean_snippet,
-                "local"
-            )
+            # Check context limits for local model if it's remote
+            current_snippet = clean_snippet
+            if self._is_remote_model(local_model) and total_lines and total_lines > 0:
+                snippet_lines = match.end_line - match.start_line + 1
+                percent = (snippet_lines / total_lines) * 100
+                if percent > self.max_remote_file_percent:
+                    current_snippet = self._fold_snippet(current_snippet)
+                    folded_lines = len(current_snippet.splitlines())
+                    folded_percent = (folded_lines / total_lines) * 100
+                    if folded_percent > self.max_remote_file_percent:
+                        self.remote_skipped_due_to_percent += 1
+                        local_result = None
+                    else:
+                        self.remote_folded_count += 1
+                        console.print(f"[dim]Snippet too large ({snippet_lines} lines). Used context folding ({folded_lines} lines) to stay within {self.max_remote_file_percent}% limit.[/dim]")
+                        local_result = self._attempt_recursive_optimize(local_model, rule_id, rule.get("description", ""), current_snippet, "local")
+
+                else:
+                    local_result = self._attempt_recursive_optimize(local_model, rule_id, rule.get("description", ""), current_snippet, "local")
+            else:
+                local_result = self._attempt_recursive_optimize(local_model, rule_id, rule.get("description", ""), current_snippet, "local")
+
             if local_result:
                 code, content = local_result
                 result = {
@@ -830,7 +914,8 @@ Respond ONLY with the RULE_ID of the best rule.
                     "focus": self._extract_tag("focus", content) or rule_id,
                     "speedup": self._extract_tag("speedup", content),
                     "cached": False,
-                    "model": local_model
+                    "model": local_model,
+                    "folded_parts": self.folded_parts.copy() if self.folded_parts else None
                 }
                 if self.use_cache:
                     self.cache[snippet_hash] = result
@@ -845,19 +930,28 @@ Respond ONLY with the RULE_ID of the best rule.
             remote_hash = self._get_hash(clean_snippet, rule_id, remote_model)
             if remote_hash in self.fail_cache:
                 return None
-            if self._is_remote_model(remote_model):
-                if total_lines and total_lines > 0:
-                    snippet_lines = match.end_line - match.start_line + 1
-                    percent = (snippet_lines / total_lines) * 100
-                    if percent > self.max_remote_file_percent:
+            
+            # Check context limits for remote escalation
+            current_snippet = clean_snippet
+            if self._is_remote_model(remote_model) and total_lines and total_lines > 0:
+                snippet_lines = match.end_line - match.start_line + 1
+                percent = (snippet_lines / total_lines) * 100
+                if percent > self.max_remote_file_percent:
+                    current_snippet = self._fold_snippet(current_snippet)
+                    folded_lines = len(current_snippet.splitlines())
+                    folded_percent = (folded_lines / total_lines) * 100
+                    if folded_percent > self.max_remote_file_percent:
                         self.remote_skipped_due_to_percent += 1
                         return None
+                    else:
+                        self.remote_folded_count += 1
+                        console.print(f"[dim]Snippet too large ({snippet_lines} lines). Used context folding ({folded_lines} lines) to stay within {self.max_remote_file_percent}% limit.[/dim]")
 
             remote_result = self._attempt_recursive_optimize(
                 remote_model,
                 rule_id,
                 rule.get("description", ""),
-                clean_snippet,
+                current_snippet,
                 "remote"
             )
             if not remote_result:
@@ -869,7 +963,8 @@ Respond ONLY with the RULE_ID of the best rule.
                 "focus": self._extract_tag("focus", content) or rule_id,
                 "speedup": self._extract_tag("speedup", content),
                 "cached": False,
-                "model": remote_model
+                "model": remote_model,
+                "folded_parts": self.folded_parts.copy() if self.folded_parts else None
             }
             if self.use_cache:
                 self.cache[remote_hash] = result
