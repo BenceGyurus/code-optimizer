@@ -1,0 +1,9 @@
+runtime_repetitions: 5
+hardware_repetitions: 10
+charts:
+  - runtime_baseline_vs_optimized
+  - relative_speedup
+  - cache_miss_before_after
+  - branch_miss_before_after
+  - tool_usage
+  - success_failure

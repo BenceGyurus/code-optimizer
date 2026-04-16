@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "optimizer-framework"
+version = "0.1.0"
+description = "Command-line, modular, LLM-driven optimization and evaluation framework."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "typer[all]",
+  "rich",
+  "pyyaml",
+  "python-dotenv",
+  "requests",
+  "matplotlib",
+]
+
+[project.optional-dependencies]
+gemini = ["google-generativeai"]
+dev = ["pytest", "ruff"]
+
+[project.scripts]
+optimizer = "optimizer.cli:app"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests", "src/optimizer/test_mvp.py"]

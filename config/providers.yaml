@@ -1,0 +1,10 @@
+providers:
+  - mock
+  - openai
+  - gemini
+  - anthropic
+  - openrouter
+  - openai-codex-cli
+  - ollama
+  - gemini-cli
+  - github-copilot-cli

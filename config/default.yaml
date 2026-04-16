@@ -1,0 +1,11 @@
+approval:
+  allow_all_changes: false
+  interactive_approval: true
+guardrails:
+  max_tool_calls: 50
+  max_llm_calls: 20
+  max_iterations: 5
+  max_patch_attempts_per_target: 3
+measurement:
+  runtime_repetitions: 5
+  hardware_repetitions: 10
