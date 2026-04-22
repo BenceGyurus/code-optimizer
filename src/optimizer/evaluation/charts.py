@@ -1,3 +1,4 @@
+import math
 import os
 from typing import Dict, Iterable, List, Sequence
 
@@ -21,6 +22,15 @@ def write_charts(charts_dir: str, aggregate: Dict[str, object]) -> None:
 
     _runtime_chart(plt, os.path.join(charts_dir, "runtime_baseline_vs_optimized.png"), labels, rows)
     _speedup_chart(plt, os.path.join(charts_dir, "relative_speedup.png"), labels, rows)
+    _before_after_chart(
+        plt,
+        os.path.join(charts_dir, "cache_hit_before_after.png"),
+        labels,
+        rows,
+        "cache_hit_rate",
+        "cache hit rate",
+        "Cache Hit Before/After",
+    )
     _before_after_chart(
         plt,
         os.path.join(charts_dir, "cache_miss_before_after.png"),
@@ -57,8 +67,8 @@ def _runtime_chart(plt, path: str, labels: Sequence[str], rows: Sequence[Dict[st
     else:
         positions = list(range(len(labels)))
         width = 0.38
-        ax.bar([index - width / 2 for index in positions], _replace_none(baseline), width=width, label="baseline", color="#64748b")
-        ax.bar([index + width / 2 for index in positions], _replace_none(optimized), width=width, label="optimized", color="#2563eb")
+        ax.bar([index - width / 2 for index in positions], _missing_as_nan(baseline), width=width, label="baseline", color="#64748b")
+        ax.bar([index + width / 2 for index in positions], _missing_as_nan(optimized), width=width, label="optimized", color="#2563eb")
         ax.set_xticks(positions, labels, rotation=20, ha="right")
         ax.set_ylabel("seconds")
         ax.set_title("Baseline vs Optimized Runtime")
@@ -76,7 +86,7 @@ def _speedup_chart(plt, path: str, labels: Sequence[str], rows: Sequence[Dict[st
         _draw_no_data(ax, "No speedup data available.")
     else:
         positions = list(range(len(labels)))
-        ax.bar(positions, _replace_none(speedups), color="#16a34a")
+        ax.bar(positions, _missing_as_nan(speedups), color="#16a34a")
         ax.axhline(1.0, color="#111827", linestyle="--", linewidth=1)
         ax.set_xticks(positions, labels, rotation=20, ha="right")
         ax.set_ylabel("speedup")
@@ -96,8 +106,8 @@ def _before_after_chart(plt, path: str, labels: Sequence[str], rows: Sequence[Di
     else:
         positions = list(range(len(labels)))
         width = 0.38
-        ax.bar([index - width / 2 for index in positions], _replace_none(before), width=width, label="before", color="#f59e0b")
-        ax.bar([index + width / 2 for index in positions], _replace_none(after), width=width, label="after", color="#0f766e")
+        ax.bar([index - width / 2 for index in positions], _missing_as_nan(before), width=width, label="before", color="#f59e0b")
+        ax.bar([index + width / 2 for index in positions], _missing_as_nan(after), width=width, label="after", color="#0f766e")
         ax.set_xticks(positions, labels, rotation=20, ha="right")
         ax.set_ylabel(ylabel)
         ax.set_title(title)
@@ -152,8 +162,8 @@ def _run_label(row: Dict[str, object], index: int) -> str:
     return f"{provider}:{model}#{repetition}"
 
 
-def _replace_none(values: Iterable[float | None]) -> List[float]:
-    return [0.0 if value is None else float(value) for value in values]
+def _missing_as_nan(values: Iterable[float | None]) -> List[float]:
+    return [math.nan if value is None else float(value) for value in values]
 
 
 def _float_or_none(value: object) -> float | None:

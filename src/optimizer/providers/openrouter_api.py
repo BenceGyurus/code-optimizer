@@ -64,7 +64,9 @@ class OpenRouterProvider(Provider):
             "max_tokens": request.max_tokens,
             "stream": False,
         }
-        if self._use_response_format(model):
+        if request.stop_sequences:
+            payload["stop"] = request.stop_sequences
+        if self._should_use_response_format(request, model):
             payload["response_format"] = {"type": "json_object"}
         headers = {
             "Authorization": f"Bearer {self.api_key}",
@@ -114,6 +116,14 @@ class OpenRouterProvider(Provider):
         if setting in {"1", "true", "on", "json"}:
             return True
         return not model.endswith(":free") and model != "openrouter/free"
+
+    def _should_use_response_format(self, request: LLMRequest, model: str) -> bool:
+        setting = os.getenv("OPENROUTER_RESPONSE_FORMAT", "auto").lower()
+        if setting in {"0", "false", "off", "none"}:
+            return False
+        if setting in {"1", "true", "on", "json"}:
+            return True
+        return request.structured_output or self._use_response_format(model)
 
     def _post_chat(self, payload: dict, headers: dict) -> requests.Response:
         return requests.post(

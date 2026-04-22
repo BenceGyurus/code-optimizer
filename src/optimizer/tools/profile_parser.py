@@ -33,6 +33,10 @@ def parse_hardware_counters(stdout: str = "", stderr: str = "") -> Dict[str, flo
     _add_rate(counters, "branch_miss_rate", "branch_misses", "branches")
     _add_rate(counters, "l1_dcache_load_miss_rate", "l1_dcache_load_misses", "l1_dcache_loads")
     _add_rate(counters, "llc_load_miss_rate", "llc_load_misses", "llc_loads")
+    _add_complement_rate(counters, "cache_hit_rate", "cache_miss_rate")
+    _add_complement_rate(counters, "branch_hit_rate", "branch_miss_rate")
+    _add_complement_rate(counters, "l1_dcache_load_hit_rate", "l1_dcache_load_miss_rate")
+    _add_complement_rate(counters, "llc_load_hit_rate", "llc_load_miss_rate")
     return counters
 
 
@@ -122,3 +126,10 @@ def _add_rate(counters: Dict[str, float], rate_key: str, numerator_key: str, den
     denominator = counters.get(denominator_key)
     if numerator is not None and denominator:
         counters[rate_key] = numerator / denominator
+
+
+def _add_complement_rate(counters: Dict[str, float], rate_key: str, source_rate_key: str) -> None:
+    source_rate = counters.get(source_rate_key)
+    if source_rate is None or not 0.0 <= source_rate <= 1.0:
+        return
+    counters[rate_key] = 1.0 - source_rate

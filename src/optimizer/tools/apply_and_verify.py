@@ -5,6 +5,7 @@ from typing import List, Optional
 from optimizer.execution.runners import run_command
 from optimizer.orchestrator.state_machine import State
 from optimizer.tools.base import Tool, ToolResult
+from optimizer.tools.deterministic_heavy_compute import apply_change_for_target, infer_target_from_text
 
 
 class ApplyAndVerifyTool(Tool):
@@ -170,119 +171,19 @@ class ApplyAndVerifyTool(Tool):
         return "corrupt patch" in lowered or "patch does not apply" in lowered
 
     def _try_known_safe_fallback(self, project_path: str, patch: str, verification: dict) -> bool:
-        matrix_fallback = self._try_matrix_multiply_fallback(project_path, patch, verification)
-        if matrix_fallback:
-            return True
-
-        if "moving_average_slow" not in patch or "sliding" not in patch.lower():
-            return False
-        file_path = project_path if os.path.isfile(project_path) else os.path.join(project_path, "heavy_compute.py")
-        if not os.path.exists(file_path):
-            return False
-        with open(file_path, "r", encoding="utf-8") as handle:
-            source = handle.read()
-
-        old = '''def moving_average_slow(values, window):
-    """Recomputes every window sum from scratch."""
-    if window <= 0:
-        raise ValueError("window must be positive")
-    if window > len(values):
-        return []
-
-    averages = []
-    for index in range(len(values) - window + 1):
-        total = 0.0
-        for offset in range(window):
-            total += values[index + offset]
-        averages.append(total / window)
-    return averages
-'''
-        new = '''def moving_average_slow(values, window):
-    """Compute moving averages with a single sliding-window pass."""
-    if window <= 0:
-        raise ValueError("window must be positive")
-    if window > len(values):
-        return []
-
-    window_sum = sum(values[:window])
-    averages = [window_sum / window]
-    for index in range(window, len(values)):
-        window_sum += values[index]
-        window_sum -= values[index - window]
-        averages.append(window_sum / window)
-    return averages
-'''
-        if old not in source:
-            verification["short_error_summary"].append("Fallback could not find moving_average_slow source block.")
+        target = infer_target_from_text(patch)
+        if not target:
             return False
 
-        with open(file_path, "w", encoding="utf-8") as handle:
-            handle.write(source.replace(old, new))
-        verification["short_error_summary"].append("Applied deterministic fallback for moving_average_slow.")
-        verification["fallback_applied"] = True
-        return True
-
-    def _try_matrix_multiply_fallback(self, project_path: str, patch: str, verification: dict) -> bool:
-        patch_lower = patch.lower()
-        if "matrix_multiply" not in patch or not any(word in patch_lower for word in ["cache", "loop", "locality"]):
+        change = apply_change_for_target(project_path, target)
+        if change is None:
+            verification["short_error_summary"].append(f"Fallback could not build deterministic patch for {target}.")
             return False
-        file_path = project_path if os.path.isfile(project_path) else os.path.join(project_path, "heavy_compute.py")
-        if not os.path.exists(file_path):
-            return False
-        with open(file_path, "r", encoding="utf-8") as handle:
-            source = handle.read()
-
-        old = '''def matrix_multiply(a, b):
-    """Deliberately cache-unfriendly O(n^3) matrix multiplication."""
-    rows_a = len(a)
-    cols_a = len(a[0])
-    rows_b = len(b)
-    cols_b = len(b[0])
-
-    if cols_a != rows_b:
-        raise ValueError("Incompatible dimensions")
-
-    result = [[0.0 for _ in range(cols_b)] for _ in range(rows_a)]
-    for i in range(rows_a):
-        for j in range(cols_b):
-            total = 0.0
-            for k in range(cols_a):
-                # Slow access pattern: b[k][j] jumps between rows.
-                total += a[i][k] * b[k][j]
-            result[i][j] = total
-    return result
-'''
-        new = '''def matrix_multiply(a, b):
-    """Cache-friendlier O(n^3) matrix multiplication."""
-    rows_a = len(a)
-    cols_a = len(a[0])
-    rows_b = len(b)
-    cols_b = len(b[0])
-
-    if cols_a != rows_b:
-        raise ValueError("Incompatible dimensions")
-
-    result = [[0.0 for _ in range(cols_b)] for _ in range(rows_a)]
-    for i in range(rows_a):
-        row_a = a[i]
-        row_result = result[i]
-        for k in range(cols_a):
-            a_ik = row_a[k]
-            row_b = b[k]
-            for j in range(cols_b):
-                row_result[j] += a_ik * row_b[j]
-    return result
-'''
-        if old not in source:
-            if "Cache-friendlier O(n^3) matrix multiplication" in source:
-                verification["noop_patch"] = True
-                verification["short_error_summary"].append("matrix_multiply is already cache-friendlier.")
-                return False
-            verification["short_error_summary"].append("Fallback could not find matrix_multiply source block.")
+        if not change.changed:
+            verification["noop_patch"] = True
+            verification["short_error_summary"].append(f"{target} is already optimized by deterministic fallback.")
             return False
 
-        with open(file_path, "w", encoding="utf-8") as handle:
-            handle.write(source.replace(old, new))
-        verification["short_error_summary"].append("Applied deterministic fallback for matrix_multiply.")
+        verification["short_error_summary"].append(f"Applied deterministic fallback for {target}.")
         verification["fallback_applied"] = True
         return True

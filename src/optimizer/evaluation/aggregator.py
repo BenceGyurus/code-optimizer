@@ -21,6 +21,8 @@ class ResultAggregator:
             "baseline_runtime": summarize(_numeric_values(rows, "baseline_runtime")),
             "optimized_runtime": summarize(_numeric_values(rows, "optimized_runtime")),
             "relative_speedup": summarize(_numeric_values(rows, "relative_speedup")),
+            "cache_hit_before": summarize(_nested_numeric_values(rows, "hardware_before", "cache_hit_rate")),
+            "cache_hit_after": summarize(_nested_numeric_values(rows, "hardware_after", "cache_hit_rate")),
             "cache_miss_before": summarize(_nested_numeric_values(rows, "hardware_before", "cache_miss_rate")),
             "cache_miss_after": summarize(_nested_numeric_values(rows, "hardware_after", "cache_miss_rate")),
             "branch_miss_before": summarize(_nested_numeric_values(rows, "hardware_before", "branch_miss_rate")),

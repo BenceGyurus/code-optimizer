@@ -17,6 +17,9 @@ from optimizer.orchestrator.state_machine import State, StateMachine
 from optimizer.providers.base import LLMRequest, Provider
 from optimizer.state.models import SessionState
 from optimizer.state.store import SessionStateStore
+from optimizer.tools.evaluate_result import EvaluateResultTool
+from optimizer.tools.remeasure import RemeasureTool
+from optimizer.tools.deterministic_heavy_compute import build_change_for_target
 from optimizer.tools.registry import tool_registry
 
 logger = logging.getLogger(__name__)
@@ -113,6 +116,8 @@ class Orchestrator:
             counters=self.session_state.counters,
             source_context=self.source_context,
             action_guidance=self._action_guidance(current_state),
+            guardrail_limits=self._guardrail_limits_text(),
+            budget_status=self._budget_status_text(),
         )
         
         master_prompt = self.prompt_pack.get_prompt("master")
@@ -126,12 +131,21 @@ class Orchestrator:
         try:
             self.guardrails.record_llm_call()
             self._emit("LLM", f"#{self.guardrails.llm_calls_count} {self.provider.name}/{self.model}", style="magenta")
-            response = self.provider.send_prompt(LLMRequest(prompt=full_prompt, model=self.model))
-            content = self._extract_json_object(response.content)
-            decision = json.loads(content)
+            response = self.provider.send_prompt(
+                LLMRequest(
+                    prompt=full_prompt,
+                    model=self.model,
+                    structured_output=self.provider.supports_structured_output(),
+                    stop_sequences=["```"],
+                )
+            )
+            decision, recovery_note = self._parse_decision_response(response.content, allowed_tools, current_state)
             action_name = decision.get("action")
             args = decision.get("args", {})
             reason = decision.get("reason", "No reason provided.")
+
+            if recovery_note:
+                self._emit("RECOVER", recovery_note, style="yellow")
             
             logger.info(f"LLM Decision: {action_name} - Reason: {reason}")
             self._emit("DECIDE", f"{action_name}  reason={self._short(reason, 120)}", style="green")
@@ -152,6 +166,33 @@ class Orchestrator:
                 )
                 self._emit("NORMALIZE", f"{action_name} -> {normalized_action}", style="yellow")
                 action_name = normalized_action
+
+            if action_name == "inspect_codebase":
+                signature = f"decision:{current_state.name}:{action_name}"
+                if not self.guardrails.record_repetition(signature):
+                    fallback_action = self._fallback_action_for_state(current_state, allowed_tools, attempted_action=action_name)
+                    if fallback_action:
+                        logger.warning(
+                            "Repeated %s in %s; forcing fallback %s",
+                            action_name,
+                            current_state.name,
+                            fallback_action,
+                        )
+                        self._emit(
+                            "GUARD",
+                            f"repeated {action_name} in {current_state.name}; forcing {fallback_action}",
+                            style="yellow",
+                        )
+                        action_name = fallback_action
+                        args = {}
+                    else:
+                        self._emit(
+                            "GUARD",
+                            f"repeated {action_name} in {current_state.name}; stopping",
+                            style="yellow",
+                        )
+                        self.state_machine.force_terminal(State.DONE)
+                        return
 
             tool = tool_registry.get_tool(action_name)
             if tool is None:
@@ -303,6 +344,7 @@ class Orchestrator:
                 self.session_state.best_result = output
 
     def _save_summary(self) -> None:
+        latest_result = self._finalize_latest_result_for_summary()
         summary = {
             "final_state": self.state_machine.current_state.name,
             "provider": self.provider.name,
@@ -313,10 +355,51 @@ class Orchestrator:
             "tool_calls": self.guardrails.tool_calls_count,
             "llm_calls": self.guardrails.llm_calls_count,
             "iterations": self.guardrails.iterations_count,
-            "latest_result": self.session_state.latest_result,
+            "latest_result": latest_result,
             "best_result": self.session_state.best_result,
         }
         self.artifact_store.save_named_yaml("final_summary.yaml", summary)
+
+    def _finalize_latest_result_for_summary(self) -> Any:
+        latest = self.session_state.latest_result
+        if not isinstance(latest, dict):
+            return latest
+        if latest.get("relative_speedup") is not None:
+            return latest
+
+        baseline_result = self.session_state.checkpoint_metadata.get("baseline_result")
+        benchmark_cmd = self.command_args.get("benchmark_cmd") or self.command_args.get("bench_cmd")
+        if baseline_result is None or not benchmark_cmd:
+            return latest
+
+        self._emit("MEASURE", "final fallback measurement", style="yellow")
+        measurement = RemeasureTool().execute(
+            benchmark_cmd=benchmark_cmd,
+            profile_cmd=self.command_args.get("profile_cmd"),
+            project_path=self.project_path,
+            runtime_repetitions=int(self.command_args.get("runtime_repetitions") or 1),
+            hardware_repetitions=int(self.command_args.get("hardware_repetitions") or 1),
+        )
+        self.artifact_store.save_artifact(
+            name="tool_output_terminal_remeasure",
+            tool_name="terminal_remeasure",
+            content=measurement.output,
+            metadata=measurement.metadata,
+        )
+        self._emit_output_summary("terminal_remeasure", measurement.output)
+
+        evaluation = EvaluateResultTool().execute(
+            baseline_result=baseline_result,
+            optimized_result=measurement.output,
+        )
+        merged = dict(latest)
+        merged.setdefault("pre_fallback_latest_result", latest)
+        if isinstance(measurement.output, dict):
+            merged["fallback_measurement"] = measurement.output
+        if isinstance(evaluation.output, dict):
+            merged.update(evaluation.output)
+        self.session_state.latest_result = merged
+        return merged
 
     def _prepare_project_workspace(self, project_path: str) -> str:
         if not os.path.isfile(project_path):
@@ -371,12 +454,245 @@ class Orchestrator:
             return "If a patch exists, choose apply_and_verify. If no patch exists, choose rollback_to_checkpoint."
         return ""
 
+    def _guardrail_limits_text(self) -> str:
+        config = self.guardrails.config
+        return (
+            f"Maximum tool calls: {config.max_tool_calls}. "
+            f"Maximum LLM calls: {config.max_llm_calls}. "
+            f"Maximum optimization iterations: {config.max_iterations}. "
+            f"Maximum patch attempts per target: {config.max_patch_attempts_per_target}. "
+            f"Maximum repeated identical signatures: {config.max_repeated_signatures}."
+        )
+
+    def _budget_status_text(self) -> str:
+        config = self.guardrails.config
+        return (
+            f"tool_calls={self.guardrails.tool_calls_count}/{config.max_tool_calls}, "
+            f"llm_calls={self.guardrails.llm_calls_count}/{config.max_llm_calls}, "
+            f"iterations={self.guardrails.iterations_count}/{config.max_iterations}"
+        )
+
     def _approve_change(self) -> bool:
         answer = input("Apply proposed change? [y]es / [a]ll / [n]o: ").strip().lower()
         if answer == "a":
             self.interactive = False
             return True
         return answer in {"y", "yes"}
+
+    def _parse_decision_response(
+        self,
+        content: str,
+        allowed_tools: list[str],
+        current_state: State,
+    ) -> tuple[dict[str, Any], Optional[str]]:
+        try:
+            text = self._extract_json_object(content)
+            decision = json.loads(text)
+            if isinstance(decision, str):
+                decision = json.loads(decision)
+            if isinstance(decision, dict):
+                return decision, None
+        except Exception:
+            pass
+
+        repaired = self._repair_decision_from_text(content, allowed_tools, current_state)
+        if repaired is not None:
+            return repaired, "Recovered malformed JSON response."
+
+        fallback = self._fallback_decision_after_parse_error(current_state, allowed_tools)
+        if fallback is not None:
+            return fallback, f"Parse fallback selected {fallback['action']}."
+
+        raise ValueError("LLM response did not decode to a JSON object.")
+
+    def _repair_decision_from_text(
+        self,
+        content: str,
+        allowed_tools: list[str],
+        current_state: State,
+    ) -> Optional[dict[str, Any]]:
+        variants = self._repair_text_variants(content)
+        for variant in variants:
+            action_name = self._recover_action_from_text(variant, allowed_tools, current_state)
+            if action_name is None:
+                continue
+
+            args = self._recover_args_from_text(variant)
+            if not isinstance(args, dict):
+                args = self._default_args_for_action(action_name)
+            if not isinstance(args, dict):
+                continue
+
+            reason = self._recover_reason_from_text(variant) or "Recovered malformed JSON."
+            return {"action": action_name, "args": args, "reason": reason}
+        return None
+
+    def _repair_text_variants(self, content: str) -> list[str]:
+        text = (content or "").strip()
+        variants: list[str] = []
+        for candidate in [
+            text,
+            text.replace('\\"', '"').replace("\\n", "\n").replace("\\t", "\t"),
+        ]:
+            if candidate and candidate not in variants:
+                variants.append(candidate)
+        try:
+            decoded = bytes(text, "utf-8").decode("unicode_escape")
+        except Exception:
+            decoded = ""
+        if decoded and decoded not in variants:
+            variants.append(decoded)
+        return variants
+
+    def _recover_action_from_text(
+        self,
+        text: str,
+        allowed_tools: list[str],
+        current_state: State,
+    ) -> Optional[str]:
+        patterns = [
+            r'"action"\s*:\s*"([^"]+)"',
+            r"'action'\s*:\s*'([^']+)'",
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, text, flags=re.IGNORECASE)
+            if not match:
+                continue
+            normalized = self._normalize_action(match.group(1), allowed_tools, current_state)
+            if normalized is not None:
+                return normalized
+
+        matches = [
+            action
+            for action in allowed_tools
+            if re.search(rf'(?<![A-Za-z0-9_]){re.escape(action)}(?![A-Za-z0-9_])', text)
+        ]
+        if len(matches) == 1:
+            return matches[0]
+        return None
+
+    def _recover_args_from_text(self, text: str) -> Optional[dict[str, Any]]:
+        match = re.search(r'"args"\s*:\s*\{', text)
+        if not match:
+            return None
+        start = text.find("{", match.start())
+        if start < 0:
+            return None
+        try:
+            args_text = self._extract_balanced_json_object(text, start)
+            args = json.loads(args_text)
+        except Exception:
+            return None
+        return args if isinstance(args, dict) else None
+
+    def _recover_reason_from_text(self, text: str) -> Optional[str]:
+        patterns = [
+            r'"reason"\s*:\s*"([^"]*)"',
+            r"'reason'\s*:\s*'([^']*)'",
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, text, flags=re.IGNORECASE)
+            if match:
+                return match.group(1).strip() or None
+        return None
+
+    def _default_args_for_action(self, action_name: str) -> Optional[dict[str, Any]]:
+        if action_name in {"inspect_codebase", "run_baseline", "profile_execution", "apply_and_verify", "remeasure", "evaluate_result"}:
+            return {}
+        if action_name == "rollback_to_checkpoint":
+            return {"checkpoint_id": "latest", "reason": "Recovered malformed JSON."}
+        return None
+
+    def _fallback_decision_after_parse_error(
+        self,
+        current_state: State,
+        allowed_tools: list[str],
+    ) -> Optional[dict[str, Any]]:
+        if current_state in {State.BASELINE_READY, State.PROFILE_READY} and "analyze_candidate" in allowed_tools:
+            preferred_targets = [str(self.session_state.current_target or "")]
+            preferred_targets.extend(
+                [
+                    "moving_average_slow",
+                    "matrix_multiply",
+                    "join_events_to_users_slow",
+                    "category_totals_slow",
+                ]
+            )
+            seen_targets = set()
+            for target in preferred_targets:
+                if not target or target in seen_targets:
+                    continue
+                seen_targets.add(target)
+                deterministic_change = build_change_for_target(self.project_path, target)
+                if deterministic_change:
+                    return {
+                        "action": "analyze_candidate",
+                        "args": {
+                            "target": deterministic_change.target,
+                            "strategy": deterministic_change.strategy,
+                            "rationale": deterministic_change.rationale,
+                        },
+                        "reason": "Parse fallback.",
+                    }
+
+        if current_state == State.ANALYSIS_READY and "propose_change" in allowed_tools:
+            preferred_targets = [str(self.session_state.current_target or "")]
+            preferred_targets.extend(
+                [
+                    "moving_average_slow",
+                    "matrix_multiply",
+                    "join_events_to_users_slow",
+                    "category_totals_slow",
+                ]
+            )
+            seen_targets = set()
+            for target in preferred_targets:
+                if not target or target in seen_targets:
+                    continue
+                seen_targets.add(target)
+                deterministic_change = build_change_for_target(self.project_path, target)
+                if deterministic_change and deterministic_change.changed and deterministic_change.patch.strip():
+                    return {
+                        "action": "propose_change",
+                        "args": {
+                            "target": deterministic_change.target,
+                            "strategy": deterministic_change.strategy,
+                            "patch": deterministic_change.patch,
+                            "rationale": deterministic_change.rationale,
+                        },
+                        "reason": "Parse fallback.",
+                    }
+
+        if current_state == State.PATCH_PROPOSED:
+            if "apply_and_verify" in allowed_tools and self._has_pending_patch():
+                return {"action": "apply_and_verify", "args": {}, "reason": "Parse fallback."}
+            if "rollback_to_checkpoint" in allowed_tools:
+                return {
+                    "action": "rollback_to_checkpoint",
+                    "args": {"checkpoint_id": "latest", "reason": "Parse fallback."},
+                    "reason": "Parse fallback.",
+                }
+
+        safe_actions = {
+            State.INIT: "run_baseline",
+            State.BASELINE_READY: "profile_execution",
+            State.PATCH_APPLIED: "apply_and_verify",
+            State.VERIFIED: "remeasure",
+            State.REMEASURED: "evaluate_result",
+        }
+        action_name = safe_actions.get(current_state)
+        if action_name in allowed_tools:
+            return {"action": action_name, "args": {}, "reason": "Parse fallback."}
+        return None
+
+    def _has_pending_patch(self) -> bool:
+        if self.pending_patch.strip():
+            return True
+        latest = self.session_state.latest_result
+        if isinstance(latest, dict):
+            patch = latest.get("patch")
+            return isinstance(patch, str) and bool(patch.strip())
+        return False
 
     def _extract_json_object(self, content: str) -> str:
         text = (content or "").strip()
@@ -394,6 +710,12 @@ class Orchestrator:
         start = text.find("{")
         if start < 0:
             raise ValueError("LLM response did not contain a JSON object.")
+
+        return self._extract_balanced_json_object(text, start)
+
+    def _extract_balanced_json_object(self, text: str, start: int) -> str:
+        if start < 0 or start >= len(text) or text[start] != "{":
+            raise ValueError("Balanced JSON extraction requires a '{' start position.")
 
         depth = 0
         in_string = False
@@ -447,19 +769,28 @@ class Orchestrator:
         if candidate in allowed_tools:
             return candidate
 
-        deterministic_fallbacks = {
-            State.INIT: "run_baseline",
-            State.BASELINE_READY: "analyze_candidate",
-            State.PROFILE_READY: "analyze_candidate",
-            State.ANALYSIS_READY: "propose_change",
-            State.PATCH_PROPOSED: "apply_and_verify",
-            State.PATCH_APPLIED: "apply_and_verify",
-            State.VERIFIED: "remeasure",
-            State.REMEASURED: "evaluate_result",
-        }
-        fallback = deterministic_fallbacks.get(current_state)
-        if fallback in allowed_tools:
-            return fallback
+        return self._fallback_action_for_state(current_state, allowed_tools, attempted_action=candidate)
+
+    def _fallback_action_for_state(
+        self,
+        current_state: State,
+        allowed_tools: list[str],
+        attempted_action: Optional[str] = None,
+    ) -> Optional[str]:
+        preferred_actions = {
+            State.INIT: ["run_baseline"],
+            State.BASELINE_READY: ["profile_execution", "analyze_candidate"],
+            State.PROFILE_READY: ["analyze_candidate"],
+            State.ANALYSIS_READY: ["propose_change"],
+            State.PATCH_PROPOSED: ["apply_and_verify", "rollback_to_checkpoint"],
+            State.PATCH_APPLIED: ["apply_and_verify"],
+            State.VERIFIED: ["remeasure", "analyze_candidate"],
+            State.REMEASURED: ["evaluate_result"],
+        }.get(current_state, [])
+
+        for candidate in preferred_actions:
+            if candidate in allowed_tools and candidate != attempted_action:
+                return candidate
         return None
 
     def _emit_state(self, current_state: State, allowed_tools: list[str]) -> None:

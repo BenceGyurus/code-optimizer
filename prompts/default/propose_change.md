@@ -11,3 +11,9 @@ Return JSON:
   },
   "reason": "why this patch is safe"
 }
+
+
+## Budget Limits
+Limits: {{guardrail_limits}}
+Current usage: {{budget_status}}
+Do not assume unlimited retries or iterations. If budget is tight or progress is weak, choose the action that cleanly finishes the session.

@@ -16,7 +16,9 @@ class ContextBuilder:
                       current_target: Optional[str] = None,
                       counters: Optional[Dict[str, int]] = None,
                       source_context: str = "",
-                      action_guidance: str = "") -> Dict[str, Any]:
+                      action_guidance: str = "",
+                      guardrail_limits: str = "",
+                      budget_status: str = "") -> Dict[str, Any]:
         """
         Assembles the variables for prompt template interpolation.
         """
@@ -29,6 +31,8 @@ class ContextBuilder:
             "counters": json.dumps(counters or {}, indent=2),
             "source_context": source_context or "No source context provided.",
             "action_guidance": action_guidance or "",
+            "guardrail_limits": guardrail_limits or "",
+            "budget_status": budget_status or "",
             "best_result": json.dumps(best_result, indent=2) if best_result else "None",
             "latest_result": json.dumps(latest_result, indent=2) if latest_result else "None",
             "session_summary": f"Current state is {current_state.name}. {artifacts_summary or ''}"

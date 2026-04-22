@@ -2,6 +2,7 @@ import csv
 import json
 import os
 from dataclasses import asdict
+from typing import Any
 
 from optimizer.evaluation.aggregator import ResultAggregator
 from optimizer.evaluation.charts import write_charts
@@ -97,8 +98,8 @@ class Evaluator:
         summary = load_yaml(summary_path) if os.path.exists(summary_path) else {}
         tool_outputs, tool_usage = self._load_tool_outputs(session_dir)
 
-        baseline = tool_outputs.get("run_baseline", {})
-        remeasure = tool_outputs.get("remeasure", {})
+        baseline_profile = _first_available_output(tool_outputs, "profile_execution", "run_baseline")
+        optimized_profile = _first_available_output(tool_outputs, "remeasure", "terminal_remeasure")
 
         return {
             "session_dir": session_dir,
@@ -108,13 +109,13 @@ class Evaluator:
             "baseline_runtime": _to_float(_read_nested(summary, "latest_result", "baseline_runtime")),
             "optimized_runtime": _to_float(_read_nested(summary, "latest_result", "optimized_runtime")),
             "relative_speedup": _to_float(_read_nested(summary, "latest_result", "relative_speedup")),
-            "hardware_before": _read_hardware_summary(baseline),
-            "hardware_after": _read_hardware_summary(remeasure),
+            "hardware_before": _read_hardware_summary(baseline_profile),
+            "hardware_after": _read_hardware_summary(optimized_profile),
             "tool_usage": tool_usage,
         }
 
     def _load_tool_outputs(self, session_dir: str) -> tuple[dict, dict]:
-        outputs = {}
+        latest_outputs: dict[str, tuple[float, Any]] = {}
         usage: dict[str, int] = {}
         for name in os.listdir(session_dir):
             if not (name.startswith("tool_output_") and name.endswith(".json")):
@@ -123,8 +124,13 @@ class Evaluator:
             with open(path, "r", encoding="utf-8") as handle:
                 payload = json.load(handle)
             tool_name = payload.get("tool_name") or name
-            outputs[tool_name] = payload.get("content") or {}
+            timestamp = payload.get("timestamp")
+            timestamp_value = float(timestamp) if isinstance(timestamp, (int, float)) else float("-inf")
+            current = latest_outputs.get(tool_name)
+            if current is None or timestamp_value >= current[0]:
+                latest_outputs[tool_name] = (timestamp_value, payload.get("content") or {})
             usage[tool_name] = usage.get(tool_name, 0) + 1
+        outputs = {tool_name: content for tool_name, (_, content) in latest_outputs.items()}
         return outputs, usage
 
 
@@ -141,6 +147,13 @@ def _to_float(value: object) -> float | None:
     if isinstance(value, (int, float)):
         return float(value)
     return None
+
+
+def _first_available_output(tool_outputs: dict[str, Any], *tool_names: str) -> Any:
+    for tool_name in tool_names:
+        if tool_name in tool_outputs:
+            return tool_outputs[tool_name]
+    return {}
 
 
 def _read_hardware_summary(tool_output: dict) -> dict:
