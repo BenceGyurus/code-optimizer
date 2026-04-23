@@ -143,9 +143,23 @@ _RECIPES = {
     ),
 }
 
+_GENERIC_TARGET_PRIORITY = (
+    "matrix_multiply",
+    "join_events_to_users_slow",
+    "category_totals_slow",
+    "moving_average_slow",
+)
+
 
 def supported_targets() -> tuple[str, ...]:
     return tuple(_RECIPES.keys())
+
+
+def preferred_targets_for_project(project_path: str) -> tuple[str, ...]:
+    source = _load_source(project_path)
+    ordered_targets = [target for target in _GENERIC_TARGET_PRIORITY if target in source]
+    ordered_targets.extend(target for target in supported_targets() if target not in ordered_targets)
+    return tuple(ordered_targets)
 
 
 def infer_target_from_text(text: str) -> Optional[str]:
@@ -215,10 +229,31 @@ def apply_change_for_target(project_path: str, target: str) -> Optional[Determin
 def _resolve_file_path(project_path: str) -> Optional[str]:
     if os.path.isfile(project_path):
         return project_path
-    candidate = os.path.join(project_path, "heavy_compute.py")
-    if os.path.isfile(candidate):
-        return candidate
+    if not os.path.isdir(project_path):
+        return None
+
+    top_level = [
+        os.path.join(project_path, name)
+        for name in sorted(os.listdir(project_path))
+        if name.endswith(".py") and os.path.isfile(os.path.join(project_path, name))
+    ]
+    if top_level:
+        return top_level[0]
+
+    for root, dirs, files in os.walk(project_path):
+        dirs[:] = sorted(dir_name for dir_name in dirs if not dir_name.startswith("."))
+        for file_name in sorted(files):
+            if file_name.endswith(".py"):
+                return os.path.join(root, file_name)
     return None
+
+
+def _load_source(project_path: str) -> str:
+    file_path = _resolve_file_path(project_path)
+    if file_path is None or not os.path.exists(file_path):
+        return ""
+    with open(file_path, "r", encoding="utf-8") as handle:
+        return handle.read()
 
 
 def _relative_patch_path(file_path: str) -> str:

@@ -19,7 +19,7 @@ from optimizer.state.models import SessionState
 from optimizer.state.store import SessionStateStore
 from optimizer.tools.evaluate_result import EvaluateResultTool
 from optimizer.tools.remeasure import RemeasureTool
-from optimizer.tools.deterministic_heavy_compute import build_change_for_target
+from optimizer.tools.deterministic_heavy_compute import build_change_for_target, preferred_targets_for_project
 from optimizer.tools.registry import tool_registry
 
 logger = logging.getLogger(__name__)
@@ -337,11 +337,22 @@ class Orchestrator:
             if action_name == "run_baseline":
                 self.session_state.checkpoint_metadata["baseline_result"] = output
                 self.session_state.best_result = output
+            elif action_name == "profile_execution":
+                self.session_state.checkpoint_metadata["baseline_profile"] = output
             elif action_name == "remeasure":
                 self.session_state.checkpoint_metadata["optimized_result"] = output
                 self.session_state.best_result = output
             elif action_name == "evaluate_result":
-                self.session_state.best_result = output
+                snapshot = self._build_evaluation_snapshot(
+                    output,
+                    self.session_state.checkpoint_metadata.get("baseline_profile"),
+                    self.session_state.checkpoint_metadata.get("optimized_result"),
+                )
+                best_evaluation = self.session_state.checkpoint_metadata.get("best_evaluation")
+                if self._is_better_evaluation(snapshot, best_evaluation):
+                    self.session_state.checkpoint_metadata["best_evaluation"] = snapshot
+                self.session_state.latest_result = snapshot
+                self.session_state.best_result = self.session_state.checkpoint_metadata.get("best_evaluation", snapshot)
 
     def _save_summary(self) -> None:
         latest_result = self._finalize_latest_result_for_summary()
@@ -361,6 +372,12 @@ class Orchestrator:
         self.artifact_store.save_named_yaml("final_summary.yaml", summary)
 
     def _finalize_latest_result_for_summary(self) -> Any:
+        best_evaluation = self.session_state.checkpoint_metadata.get("best_evaluation")
+        if isinstance(best_evaluation, dict) and best_evaluation.get("relative_speedup") is not None:
+            self.session_state.latest_result = best_evaluation
+            self.session_state.best_result = best_evaluation
+            return best_evaluation
+
         latest = self.session_state.latest_result
         if not isinstance(latest, dict):
             return latest
@@ -392,14 +409,71 @@ class Orchestrator:
             baseline_result=baseline_result,
             optimized_result=measurement.output,
         )
-        merged = dict(latest)
-        merged.setdefault("pre_fallback_latest_result", latest)
+        merged = self._build_evaluation_snapshot(
+            evaluation.output if isinstance(evaluation.output, dict) else {},
+            self.session_state.checkpoint_metadata.get("baseline_profile"),
+            measurement.output,
+        )
+        merged["pre_fallback_latest_result"] = latest
         if isinstance(measurement.output, dict):
             merged["fallback_measurement"] = measurement.output
-        if isinstance(evaluation.output, dict):
-            merged.update(evaluation.output)
+        if self._is_better_evaluation(merged, best_evaluation):
+            self.session_state.checkpoint_metadata["best_evaluation"] = merged
+            self.session_state.best_result = merged
         self.session_state.latest_result = merged
         return merged
+
+    def _build_evaluation_snapshot(
+        self,
+        evaluation_output: Any,
+        baseline_profile: Any,
+        optimized_result: Any,
+    ) -> dict[str, Any]:
+        snapshot = dict(evaluation_output) if isinstance(evaluation_output, dict) else {}
+        hardware_before = self._reduce_hardware_summary(baseline_profile)
+        hardware_after = self._reduce_hardware_summary(optimized_result)
+        if hardware_before:
+            snapshot["hardware_before"] = hardware_before
+        if hardware_after:
+            snapshot["hardware_after"] = hardware_after
+        return snapshot
+
+    def _is_better_evaluation(self, candidate: Any, incumbent: Any) -> bool:
+        if not isinstance(candidate, dict):
+            return False
+        candidate_speedup = candidate.get("relative_speedup")
+        if not isinstance(candidate_speedup, (int, float)):
+            return False
+        if not isinstance(incumbent, dict):
+            return True
+        incumbent_speedup = incumbent.get("relative_speedup")
+        if not isinstance(incumbent_speedup, (int, float)):
+            return True
+        if candidate_speedup > incumbent_speedup + 1e-9:
+            return True
+        if abs(candidate_speedup - incumbent_speedup) > 1e-9:
+            return False
+        candidate_runtime = candidate.get("optimized_runtime")
+        incumbent_runtime = incumbent.get("optimized_runtime")
+        if isinstance(candidate_runtime, (int, float)) and isinstance(incumbent_runtime, (int, float)):
+            return candidate_runtime < incumbent_runtime
+        return False
+
+    def _reduce_hardware_summary(self, tool_output: Any) -> dict[str, float]:
+        if not isinstance(tool_output, dict):
+            return {}
+        summary = tool_output.get("hardware_summary")
+        if not isinstance(summary, dict):
+            return {}
+        reduced: dict[str, float] = {}
+        for key, value in summary.items():
+            if isinstance(value, dict):
+                average = value.get("average")
+                if isinstance(average, (int, float)):
+                    reduced[key] = float(average)
+            elif isinstance(value, (int, float)):
+                reduced[key] = float(value)
+        return reduced
 
     def _prepare_project_workspace(self, project_path: str) -> str:
         if not os.path.isfile(project_path):
@@ -445,16 +519,9 @@ class Orchestrator:
 
     def _action_guidance(self, current_state: State) -> str:
         if current_state == State.ANALYSIS_READY:
-            project_name = os.path.basename(self.original_project_path or self.project_path)
-            if project_name == "heavy_compute.py":
-                return (
-                    "You must propose a concrete unified diff patch when action is propose_change. "
-                    "Use the source context. Prefer optimizing moving_average_slow, join_events_to_users_slow, "
-                    "category_totals_slow, or matrix_multiply. The patch must start with diff --git."
-                )
             return (
                 "You must propose a concrete unified diff patch when action is propose_change. "
-                "Use the source context. Prefer the largest nested loops, repeated rescans, column-major traversals, "
+                "Use the source context. Prefer the largest nested loops, repeated rescans, dense numeric kernels, "
                 "branch-heavy dispatch, or allocation-heavy hot paths. The patch must start with diff --git."
             )
         if current_state == State.PATCH_PROPOSED:
@@ -617,14 +684,7 @@ class Orchestrator:
     ) -> Optional[dict[str, Any]]:
         if current_state in {State.BASELINE_READY, State.PROFILE_READY} and "analyze_candidate" in allowed_tools:
             preferred_targets = [str(self.session_state.current_target or "")]
-            preferred_targets.extend(
-                [
-                    "moving_average_slow",
-                    "matrix_multiply",
-                    "join_events_to_users_slow",
-                    "category_totals_slow",
-                ]
-            )
+            preferred_targets.extend(preferred_targets_for_project(self.project_path))
             seen_targets = set()
             for target in preferred_targets:
                 if not target or target in seen_targets:
@@ -644,14 +704,7 @@ class Orchestrator:
 
         if current_state == State.ANALYSIS_READY and "propose_change" in allowed_tools:
             preferred_targets = [str(self.session_state.current_target or "")]
-            preferred_targets.extend(
-                [
-                    "moving_average_slow",
-                    "matrix_multiply",
-                    "join_events_to_users_slow",
-                    "category_totals_slow",
-                ]
-            )
+            preferred_targets.extend(preferred_targets_for_project(self.project_path))
             seen_targets = set()
             for target in preferred_targets:
                 if not target or target in seen_targets:

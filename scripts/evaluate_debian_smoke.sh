@@ -4,7 +4,11 @@ set -euo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
 
-PROJECT="${1:-examples/heavy_compute.py}"
+PROJECT="${1:-}"
+if [[ -z "${PROJECT}" ]]; then
+  echo "Usage: $0 <project.py> [output_dir]" >&2
+  exit 1
+fi
 OUTPUT_DIR="${2:-results/debian-smoke-$(basename "${PROJECT}" .py)}"
 PROJECT_FILE="$(basename "${PROJECT}")"
 PYTHON_BIN="${PYTHON_BIN:-${REPO_ROOT}/.venv/bin/python}"

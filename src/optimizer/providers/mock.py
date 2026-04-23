@@ -1,37 +1,51 @@
 import json
+import os
+import re
 from typing import List
 
 from .base import Provider, LLMRequest, LLMResponse
 
 
-MOVING_AVERAGE_PATCH = """diff --git a/examples/heavy_compute.py b/examples/heavy_compute.py
---- a/examples/heavy_compute.py
-+++ b/examples/heavy_compute.py
-@@ -32,18 +32,18 @@
- def moving_average_slow(values, window):
-     \"\"\"Recomputes every window sum from scratch.
- 
-     Optimization difficulty: easy. This can be replaced by a sliding-window
-     running sum without changing results.
-     \"\"\"
-     if window <= 0:
-         raise ValueError(\"window must be positive\")
-     if window > len(values):
-         return []
- 
+MOVING_AVERAGE_PATCH = """*** Begin Patch
+*** Update File: __PROJECT_FILE__
+@@
+-def moving_average_slow(values, window):
+-    \"\"\"Recomputes every window sum from scratch.
+-
+-    Optimization difficulty: easy. This can be replaced by a sliding-window
+-    running sum without changing results.
+-    \"\"\"
+-    if window <= 0:
+-        raise ValueError(\"window must be positive\")
+-    if window > len(values):
+-        return []
+-
 -    averages = []
 -    for index in range(len(values) - window + 1):
 -        total = 0.0
 -        for offset in range(window):
 -            total += values[index + offset]
 -        averages.append(total / window)
+-    return averages
++def moving_average_slow(values, window):
++    \"\"\"Recomputes every window sum from scratch.
++
++    Optimization difficulty: easy. This can be replaced by a sliding-window
++    running sum without changing results.
++    \"\"\"
++    if window <= 0:
++        raise ValueError(\"window must be positive\")
++    if window > len(values):
++        return []
++
 +    window_sum = sum(values[:window])
 +    averages = [window_sum / window]
 +    for index in range(window, len(values)):
 +        window_sum += values[index]
 +        window_sum -= values[index - window]
 +        averages.append(window_sum / window)
-     return averages
++    return averages
+*** End Patch
 """
 
 
@@ -77,6 +91,8 @@ class MockProvider(Provider):
 
     def send_prompt(self, request: LLMRequest) -> LLMResponse:
         content = self.responses[self.call_count % len(self.responses)]
+        if "__PROJECT_FILE__" in content:
+            content = content.replace("__PROJECT_FILE__", self._project_file_from_prompt(request.prompt))
         self.call_count += 1
         return LLMResponse(
             content=content,
@@ -91,3 +107,9 @@ class MockProvider(Provider):
 
     def supports_structured_output(self) -> bool:
         return True
+
+    def _project_file_from_prompt(self, prompt: str) -> str:
+        match = re.search(r"File:\s+([^\n]+)", prompt or "")
+        if not match:
+            return "project.py"
+        return os.path.basename(match.group(1).strip())

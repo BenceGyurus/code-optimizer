@@ -84,6 +84,44 @@ def test_load_tool_outputs_keeps_latest_artifact_per_tool(tmp_path: Path, monkey
     assert usage["remeasure"] == 2
 
 
+def test_collect_run_details_prefers_embedded_hardware_summary_from_final_summary(tmp_path: Path) -> None:
+    session_dir = tmp_path / "session"
+    session_dir.mkdir()
+
+    _write_yaml(
+        session_dir / "final_summary.yaml",
+        {
+            "tool_calls": 4,
+            "llm_calls": 3,
+            "iterations": 1,
+            "latest_result": {
+                "baseline_runtime": 12.0,
+                "optimized_runtime": 9.0,
+                "relative_speedup": 1.3333333333,
+                "hardware_before": {"cache_miss_rate": 0.15},
+                "hardware_after": {"cache_miss_rate": 0.09},
+            },
+        },
+    )
+    _write_artifact(
+        session_dir / "tool_output_profile_execution_100.json",
+        "profile_execution",
+        {"hardware_summary": {"cache_miss_rate": {"average": 0.25}}},
+        timestamp=100.0,
+    )
+    _write_artifact(
+        session_dir / "tool_output_terminal_remeasure_200.json",
+        "terminal_remeasure",
+        {"hardware_summary": {"cache_miss_rate": {"average": 0.18}}},
+        timestamp=200.0,
+    )
+
+    details = Evaluator()._collect_run_details(str(session_dir))
+
+    assert details["hardware_before"] == {"cache_miss_rate": 0.15}
+    assert details["hardware_after"] == {"cache_miss_rate": 0.09}
+
+
 def _write_artifact(path: Path, tool_name: str, content: dict, timestamp: float) -> None:
     path.write_text(
         json.dumps(

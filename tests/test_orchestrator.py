@@ -6,6 +6,7 @@ from optimizer.orchestrator.guardrails import GuardrailsConfig
 from optimizer.orchestrator.orchestrator import Orchestrator
 from optimizer.orchestrator.state_machine import State
 from optimizer.providers.mock import MockProvider
+from optimizer.tools.analyze_candidate import AnalyzeCandidateTool
 
 
 def _prompt_pack():
@@ -13,7 +14,7 @@ def _prompt_pack():
 
 
 def _project_file(tmp_path):
-    path = tmp_path / "heavy_compute.py"
+    path = tmp_path / "sample_project.py"
     path.write_text("def placeholder():\n    return 1\n", encoding="utf-8")
     return path
 
@@ -105,7 +106,7 @@ def test_parse_error_fallback_uses_apply_and_verify_when_patch_exists(tmp_path):
         interactive=False,
         output_dir=str(tmp_path / "results"),
     )
-    orchestrator.pending_patch = "diff --git a/heavy_compute.py b/heavy_compute.py\n"
+    orchestrator.pending_patch = "diff --git a/sample_project.py b/sample_project.py\n"
 
     decision, recovery_note = orchestrator._parse_decision_response(
         "{ not-json",
@@ -122,7 +123,7 @@ def test_parse_error_fallback_builds_deterministic_propose_change(tmp_path):
     source = (
         Path(__file__).resolve().parents[1] / "examples" / "heavy_compute.py"
     ).read_text(encoding="utf-8")
-    project_path = tmp_path / "heavy_compute.py"
+    project_path = tmp_path / "sample_project.py"
     project_path.write_text(source, encoding="utf-8")
 
     orchestrator = Orchestrator(
@@ -147,11 +148,11 @@ def test_parse_error_fallback_builds_deterministic_propose_change(tmp_path):
     assert recovery_note == "Parse fallback selected propose_change."
 
 
-def test_parse_error_fallback_can_choose_default_heavy_compute_target(tmp_path):
+def test_parse_error_fallback_can_choose_default_target_without_filename_hint(tmp_path):
     source = (
         Path(__file__).resolve().parents[1] / "examples" / "heavy_compute.py"
     ).read_text(encoding="utf-8")
-    project_path = tmp_path / "heavy_compute.py"
+    project_path = tmp_path / "sample_project.py"
     project_path.write_text(source, encoding="utf-8")
 
     orchestrator = Orchestrator(
@@ -170,7 +171,7 @@ def test_parse_error_fallback_can_choose_default_heavy_compute_target(tmp_path):
     )
 
     assert decision["action"] == "propose_change"
-    assert decision["args"]["target"] in {"moving_average_slow", "matrix_multiply", "join_events_to_users_slow", "category_totals_slow"}
+    assert decision["args"]["target"] == "matrix_multiply"
     assert decision["args"]["patch"].startswith("diff --git ")
     assert recovery_note == "Parse fallback selected propose_change."
 
@@ -179,7 +180,7 @@ def test_parse_error_fallback_can_choose_deterministic_analysis_candidate(tmp_pa
     source = (
         Path(__file__).resolve().parents[1] / "examples" / "heavy_compute.py"
     ).read_text(encoding="utf-8")
-    project_path = tmp_path / "heavy_compute.py"
+    project_path = tmp_path / "sample_project.py"
     project_path.write_text(source, encoding="utf-8")
 
     orchestrator = Orchestrator(
@@ -198,6 +199,49 @@ def test_parse_error_fallback_can_choose_deterministic_analysis_candidate(tmp_pa
     )
 
     assert decision["action"] == "analyze_candidate"
-    assert decision["args"]["target"] in {"moving_average_slow", "matrix_multiply", "join_events_to_users_slow", "category_totals_slow"}
+    assert decision["args"]["target"] == "matrix_multiply"
     assert decision["args"]["strategy"]
     assert recovery_note == "Parse fallback selected analyze_candidate."
+
+
+def test_analyze_candidate_replaces_generic_target_with_deterministic_fallback(tmp_path):
+    source = (
+        Path(__file__).resolve().parents[1] / "examples" / "heavy_compute.py"
+    ).read_text(encoding="utf-8")
+    project_path = tmp_path / "sample_project.py"
+    project_path.write_text(source, encoding="utf-8")
+
+    result = AnalyzeCandidateTool().execute(
+        project_path=str(project_path),
+        target="unspecified",
+        strategy="inspect hot path",
+        rationale="",
+    )
+
+    assert result.output["target"] == "matrix_multiply"
+    assert result.output["strategy"]
+    assert result.output["rationale"]
+
+
+def test_finalize_summary_prefers_best_evaluation_snapshot(tmp_path):
+    project_path = _project_file(tmp_path)
+    orchestrator = Orchestrator(
+        project_path=str(project_path),
+        provider=MockProvider(),
+        prompt_pack=_prompt_pack(),
+        guardrails_config=GuardrailsConfig(max_llm_calls=1, max_tool_calls=1),
+        interactive=False,
+        output_dir=str(tmp_path / "results"),
+    )
+    best_snapshot = {
+        "baseline_runtime": 10.0,
+        "optimized_runtime": 8.0,
+        "relative_speedup": 1.25,
+        "hardware_before": {"cache_miss_rate": 0.2},
+        "hardware_after": {"cache_miss_rate": 0.1},
+    }
+    orchestrator.session_state.latest_result = {"decision": "stop"}
+    orchestrator.session_state.checkpoint_metadata["best_evaluation"] = best_snapshot
+
+    assert orchestrator._finalize_latest_result_for_summary() == best_snapshot
+    assert orchestrator.session_state.latest_result == best_snapshot

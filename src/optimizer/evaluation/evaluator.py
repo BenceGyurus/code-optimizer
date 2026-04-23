@@ -101,6 +101,8 @@ class Evaluator:
 
         baseline_profile = _first_available_output(tool_outputs, "profile_execution", "run_baseline")
         optimized_profile = _first_available_output(tool_outputs, "remeasure", "terminal_remeasure")
+        embedded_hardware_before = _read_embedded_hardware_summary(summary, "hardware_before")
+        embedded_hardware_after = _read_embedded_hardware_summary(summary, "hardware_after")
 
         return {
             "session_dir": session_dir,
@@ -110,8 +112,8 @@ class Evaluator:
             "baseline_runtime": _to_float(_read_nested(summary, "latest_result", "baseline_runtime")),
             "optimized_runtime": _to_float(_read_nested(summary, "latest_result", "optimized_runtime")),
             "relative_speedup": _to_float(_read_nested(summary, "latest_result", "relative_speedup")),
-            "hardware_before": _read_hardware_summary(baseline_profile),
-            "hardware_after": _read_hardware_summary(optimized_profile),
+            "hardware_before": embedded_hardware_before or _read_hardware_summary(baseline_profile),
+            "hardware_after": embedded_hardware_after or _read_hardware_summary(optimized_profile),
             "tool_usage": tool_usage,
         }
 
@@ -170,5 +172,23 @@ def _read_hardware_summary(tool_output: dict) -> dict:
             if isinstance(average, (int, float)):
                 reduced[key] = float(average)
         elif isinstance(value, (int, float)):
+            reduced[key] = float(value)
+    return reduced
+
+
+def _read_embedded_hardware_summary(summary: dict, key: str) -> dict:
+    latest = _read_nested(summary, "latest_result", key)
+    if isinstance(latest, dict):
+        return _coerce_numeric_summary(latest)
+    best = _read_nested(summary, "best_result", key)
+    if isinstance(best, dict):
+        return _coerce_numeric_summary(best)
+    return {}
+
+
+def _coerce_numeric_summary(summary: dict) -> dict:
+    reduced = {}
+    for key, value in summary.items():
+        if isinstance(value, (int, float)):
             reduced[key] = float(value)
     return reduced

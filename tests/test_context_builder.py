@@ -5,7 +5,7 @@ from optimizer.orchestrator.state_machine import State
 
 
 def test_context_builder_summarizes_large_latest_result() -> None:
-    builder = ContextBuilder("heavy_compute.py")
+    builder = ContextBuilder("sample_project.py")
     latest_result = {
         "patch": "diff --git a/x b/x\n" + "\n".join(f"+line {index}" for index in range(40)),
         "test": {
