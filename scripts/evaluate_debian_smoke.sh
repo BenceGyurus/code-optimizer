@@ -42,6 +42,8 @@ export PYTHONPATH="${REPO_ROOT}/src${PYTHONPATH:+:${PYTHONPATH}}"
 mkdir -p "${MPLCONFIGDIR}"
 cd "${REPO_ROOT}"
 
+TEST_COMMAND="\"${PYTHON_BIN}\" \"${REPO_ROOT}/scripts/repeat_unittest_summary.py\" --pattern \"${PROJECT_FILE}\" --repetitions ${RUN_REPETITIONS}"
+
 if [[ ! -f "${PROJECT}" ]]; then
   echo "Project file not found: ${PROJECT}" >&2
   exit 1
@@ -72,7 +74,7 @@ fi
   --repetitions 1 \
   --runtime-repetitions "${RUN_REPETITIONS}" \
   --hardware-repetitions "${RUN_REPETITIONS}" \
-  --test-command "bash -lc 'for i in \$(seq 1 ${RUN_REPETITIONS}); do python3 -m unittest discover -s . -p \"${PROJECT_FILE}\" -q || exit 1; done'" \
+  --test-command "${TEST_COMMAND}" \
   --benchmark-command "python3 ${PROJECT_FILE} --skip-tests --repetitions 1" \
   --profile-command "perf stat -e cache-references,cache-misses,branches,branch-misses,L1-dcache-loads,L1-dcache-load-misses,LLC-loads,LLC-load-misses -- python3 ${PROJECT_FILE} --skip-tests --repetitions 1" \
   --output-dir "${OUTPUT_DIR}" \

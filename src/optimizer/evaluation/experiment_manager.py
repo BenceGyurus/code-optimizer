@@ -3,6 +3,7 @@ import os
 import time
 from dataclasses import dataclass
 from typing import Iterable, List, Optional
+from uuid import uuid4
 
 
 @dataclass
@@ -18,7 +19,7 @@ class ExperimentManager:
         self.output_dir = output_dir
 
     def create_run_dir(self) -> str:
-        path = os.path.join(self.output_dir, f"eval_{int(time.time())}")
+        path = os.path.join(self.output_dir, f"eval_{time.time_ns()}_{uuid4().hex[:8]}")
         os.makedirs(os.path.join(path, "per_run"), exist_ok=True)
         os.makedirs(os.path.join(path, "charts"), exist_ok=True)
         return path

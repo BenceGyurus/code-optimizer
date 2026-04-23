@@ -3,6 +3,7 @@ import os
 import time
 from typing import Dict, Any, List, Optional
 from dataclasses import dataclass, asdict, field
+from uuid import uuid4
 
 from optimizer.utils.yaml_io import dump_yaml
 
@@ -17,7 +18,7 @@ class Artifact:
 class ArtifactStore:
     def __init__(self, output_dir: str = "results"):
         self.output_dir = output_dir
-        self.session_id = f"session_{int(time.time())}"
+        self.session_id = f"session_{time.time_ns()}_{uuid4().hex[:8]}"
         self.session_dir = os.path.join(self.output_dir, self.session_id)
         os.makedirs(self.session_dir, exist_ok=True)
         self._artifacts: List[Dict[str, Any]] = []
@@ -33,7 +34,7 @@ class ArtifactStore:
         self._artifacts.append(artifact)
         
         # Save to disk as well
-        file_path = os.path.join(self.session_dir, f"{name}_{int(time.time())}.json")
+        file_path = os.path.join(self.session_dir, f"{name}_{time.time_ns()}_{uuid4().hex[:8]}.json")
         try:
             with open(file_path, "w", encoding="utf-8") as f:
                 json.dump(artifact, f, indent=2)
