@@ -18,7 +18,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-gemini = ["google-generativeai"]
+gemini = ["google-genai", "google-generativeai"]
 dev = ["pytest", "ruff"]
 
 [project.scripts]

@@ -1,10 +1,10 @@
 typer[all]
 rich
-litellm
 pyyaml
 python-dotenv
-ruff
 requests
 google-generativeai
 google-genai
 matplotlib
+pytest
+ruff
