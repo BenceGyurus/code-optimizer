@@ -105,6 +105,7 @@ def evaluate(
     project: str = typer.Option(".", "--project", help="Path to the project to evaluate."),
     providers: str = typer.Option("mock", "--provider", "--providers", help="Comma-separated providers."),
     models: Optional[str] = typer.Option(None, "--model", "--models", help="Comma-separated models."),
+    provider_models: Optional[str] = typer.Option(None, "--provider-models", help="Comma-separated provider=model pairs."),
     prompt_packs: str = typer.Option("default", "--prompt-pack", "--prompt-packs", help="Comma-separated prompt packs."),
     build_command: Optional[str] = typer.Option(None, "--build-command", help="Build command."),
     test_command: Optional[str] = typer.Option(None, "--test-command", help="Test command."),
@@ -120,13 +121,21 @@ def evaluate(
     verbose: bool = typer.Option(True, "--verbose/--quiet", help="Print per-run optimizer progress."),
 ):
     """Run an experiment matrix across providers, models and prompt packs."""
+    prompt_pack_names = _split_csv(prompt_packs)
+    _validate_prompt_packs(prompt_pack_names)
+
+    parsed_provider_models = _parse_provider_models_csv(provider_models) if provider_models else None
+    provider_names = [provider for provider, _ in parsed_provider_models] if parsed_provider_models else _split_csv(providers)
+    _validate_providers(provider_names)
+
     evaluator = Evaluator(output_dir=output_dir)
     result_dir = evaluator.run(
         project=project,
         providers=_split_csv(providers),
         models=_split_csv(models) if models else [None],
-        prompt_packs=_split_csv(prompt_packs),
+        prompt_packs=prompt_pack_names,
         repetitions=repetitions,
+        provider_models=parsed_provider_models,
         build_command=build_command,
         test_command=test_command,
         benchmark_command=benchmark_command,
@@ -197,6 +206,47 @@ def doctor():
 
 def _split_csv(value: str) -> list[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def _parse_provider_models_csv(value: str) -> list[tuple[str, Optional[str]]]:
+    pairs: list[tuple[str, Optional[str]]] = []
+    for item in _split_csv(value):
+        if "=" not in item:
+            raise typer.BadParameter(
+                "Each --provider-models entry must use provider=model syntax, for example "
+                "`openrouter=openai/gpt-oss-120b`."
+            )
+        provider, model = item.split("=", 1)
+        provider = provider.strip()
+        model = model.strip() or None
+        if not provider:
+            raise typer.BadParameter("Provider name cannot be empty in --provider-models.")
+        pairs.append((provider, model))
+    return pairs
+
+
+def _validate_prompt_packs(prompt_packs: list[str]) -> None:
+    loader = PromptLoader()
+    for name in prompt_packs:
+        pack = loader.get_pack(name)
+        if not pack:
+            raise typer.BadParameter(f"Prompt pack not found: {name}")
+        missing = pack.validate()
+        if missing:
+            raise typer.BadParameter(f"Prompt pack {name} is incomplete: {', '.join(missing)}")
+
+
+def _validate_providers(provider_names: list[str]) -> None:
+    unique_names = []
+    for name in provider_names:
+        if name not in unique_names:
+            unique_names.append(name)
+    for name in unique_names:
+        provider = provider_registry.get_provider(name)
+        if not provider:
+            raise typer.BadParameter(f"Provider not found: {name}")
+        if not provider.is_available():
+            raise typer.BadParameter(f"Provider is not available in the current environment: {name}")
 
 
 def _choose_provider() -> str:

@@ -27,6 +27,7 @@ class Evaluator:
         models: list[str | None],
         prompt_packs: list[str],
         repetitions: int,
+        provider_models: list[tuple[str, str | None]] | None = None,
         build_command: str | None = None,
         test_command: str | None = None,
         benchmark_command: str | None = None,
@@ -40,7 +41,7 @@ class Evaluator:
     ) -> str:
         manager = ExperimentManager(self.output_dir)
         eval_dir = manager.create_run_dir()
-        matrix = manager.matrix(providers, models, prompt_packs, repetitions)
+        matrix = manager.matrix(providers, models, prompt_packs, repetitions, provider_models=provider_models)
         loader = PromptLoader()
         rows = []
 

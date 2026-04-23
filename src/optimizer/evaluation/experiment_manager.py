@@ -29,8 +29,10 @@ class ExperimentManager:
         models: Iterable[Optional[str]],
         prompt_packs: Iterable[str],
         repetitions: int,
+        provider_models: Optional[Iterable[tuple[str, Optional[str]]]] = None,
     ) -> List[ExperimentConfig]:
         configs = []
-        for provider, model, prompt_pack, repetition in itertools.product(providers, models, prompt_packs, range(1, repetitions + 1)):
+        provider_model_pairs = list(provider_models) if provider_models is not None else list(itertools.product(providers, models))
+        for (provider, model), prompt_pack, repetition in itertools.product(provider_model_pairs, prompt_packs, range(1, repetitions + 1)):
             configs.append(ExperimentConfig(provider=provider, model=model, prompt_pack=prompt_pack, repetition=repetition))
         return configs

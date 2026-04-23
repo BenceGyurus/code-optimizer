@@ -42,6 +42,42 @@ def write_charts(charts_dir: str, aggregate: Dict[str, object]) -> None:
     )
     _before_after_chart(
         plt,
+        os.path.join(charts_dir, "l1_cache_hit_before_after.png"),
+        labels,
+        rows,
+        "l1_dcache_load_hit_rate",
+        "L1 data cache hit rate",
+        "L1 Data Cache Hit Before/After",
+    )
+    _before_after_chart(
+        plt,
+        os.path.join(charts_dir, "l1_cache_miss_before_after.png"),
+        labels,
+        rows,
+        "l1_dcache_load_miss_rate",
+        "L1 data cache miss rate",
+        "L1 Data Cache Miss Before/After",
+    )
+    _before_after_chart(
+        plt,
+        os.path.join(charts_dir, "llc_cache_hit_before_after.png"),
+        labels,
+        rows,
+        "llc_load_hit_rate",
+        "LLC hit rate",
+        "LLC Hit Before/After",
+    )
+    _before_after_chart(
+        plt,
+        os.path.join(charts_dir, "llc_cache_miss_before_after.png"),
+        labels,
+        rows,
+        "llc_load_miss_rate",
+        "LLC miss rate",
+        "LLC Miss Before/After",
+    )
+    _before_after_chart(
+        plt,
         os.path.join(charts_dir, "branch_miss_before_after.png"),
         labels,
         rows,
@@ -49,6 +85,9 @@ def write_charts(charts_dir: str, aggregate: Dict[str, object]) -> None:
         "branch miss rate",
         "Branch Miss Before/After",
     )
+    _metric_chart(plt, os.path.join(charts_dir, "llm_calls_per_run.png"), labels, rows, "llm_calls", "LLM Calls Per Run", "calls")
+    _metric_chart(plt, os.path.join(charts_dir, "tool_calls_per_run.png"), labels, rows, "tool_calls", "Tool Calls Per Run", "calls")
+    _metric_chart(plt, os.path.join(charts_dir, "iterations_per_run.png"), labels, rows, "iterations", "Iterations Per Run", "iterations")
     _tool_usage_chart(plt, os.path.join(charts_dir, "tool_usage.png"), aggregate.get("tool_usage_totals") or {})
     _success_failure_chart(
         plt,
@@ -134,6 +173,23 @@ def _tool_usage_chart(plt, path: str, tool_usage: Dict[str, object]) -> None:
     plt.close(fig)
 
 
+def _metric_chart(plt, path: str, labels: Sequence[str], rows: Sequence[Dict[str, object]], key: str, title: str, ylabel: str) -> None:
+    values = [_float_or_none(row.get(key)) for row in rows]
+    fig, ax = plt.subplots(figsize=(10, 5))
+    if not any(value is not None for value in values):
+        _draw_no_data(ax, f"No {ylabel} data available.")
+    else:
+        positions = list(range(len(labels)))
+        ax.bar(positions, _missing_as_nan(values), color="#1d4ed8")
+        ax.set_xticks(positions, labels, rotation=20, ha="right")
+        ax.set_ylabel(ylabel)
+        ax.set_title(title)
+        ax.grid(axis="y", alpha=0.25)
+    fig.tight_layout()
+    fig.savefig(path, dpi=160)
+    plt.close(fig)
+
+
 def _success_failure_chart(plt, path: str, successful_runs: int, failed_runs: int) -> None:
     fig, ax = plt.subplots(figsize=(6, 6))
     total = successful_runs + failed_runs
@@ -158,8 +214,9 @@ def _draw_no_data(ax, message: str) -> None:
 def _run_label(row: Dict[str, object], index: int) -> str:
     provider = row.get("provider") or "provider"
     model = row.get("model") or "default"
+    prompt_pack = row.get("prompt_pack") or "prompt"
     repetition = row.get("repetition") or index
-    return f"{provider}:{model}#{repetition}"
+    return f"{provider}:{model}:{prompt_pack}#{repetition}"
 
 
 def _missing_as_nan(values: Iterable[float | None]) -> List[float]:

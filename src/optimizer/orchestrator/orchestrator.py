@@ -445,10 +445,17 @@ class Orchestrator:
 
     def _action_guidance(self, current_state: State) -> str:
         if current_state == State.ANALYSIS_READY:
+            project_name = os.path.basename(self.original_project_path or self.project_path)
+            if project_name == "heavy_compute.py":
+                return (
+                    "You must propose a concrete unified diff patch when action is propose_change. "
+                    "Use the source context. Prefer optimizing moving_average_slow, join_events_to_users_slow, "
+                    "category_totals_slow, or matrix_multiply. The patch must start with diff --git."
+                )
             return (
                 "You must propose a concrete unified diff patch when action is propose_change. "
-                "Use the source context. Prefer optimizing moving_average_slow, join_events_to_users_slow, "
-                "category_totals_slow, or matrix_multiply. The patch must start with diff --git."
+                "Use the source context. Prefer the largest nested loops, repeated rescans, column-major traversals, "
+                "branch-heavy dispatch, or allocation-heavy hot paths. The patch must start with diff --git."
             )
         if current_state == State.PATCH_PROPOSED:
             return "If a patch exists, choose apply_and_verify. If no patch exists, choose rollback_to_checkpoint."
