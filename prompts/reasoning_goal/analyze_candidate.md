@@ -1,12 +1,12 @@
-Select the highest-impact bottleneck based on the profiling data.
+Select the bottleneck with the highest expected measured gain.
 
-Return exactly one JSON object. No markdown, no preambles.
+Return exactly one JSON object. No markdown. No preambles.
 {
   "action": "analyze_candidate",
   "args": {
-    "target": "target_name",
+    "target": "concrete target_name",
     "strategy": "selected_strategy",
-    "rationale": "10 words max"
+    "rationale": "expected gain and safety in 10 words max"
   },
   "reason": "10 words max"
 }

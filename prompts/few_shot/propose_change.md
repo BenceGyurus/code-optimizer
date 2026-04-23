@@ -1,10 +1,11 @@
-Phase 1: Generate knowledge about mathematical equivalence when optimizing {{current_target}}.
-Phase 2: Propose the patch.
+Propose a patch for `{{current_target}}` using the output style shown below.
 
 Return exactly one JSON object.
+Example:
+{"action":"propose_change","args":{"target":"dominant_inner_loop","strategy":"reuse cached values inside the loop","patch":"diff --git ...","rationale":"Reduces repeated work while preserving output."},"reason":"Safe high-ROI patch."}
+
 Schema:
 {
-  "generated_knowledge": "State the shortest rules required to keep the output identical here.",
   "action": "propose_change",
   "args": {
     "target": "{{current_target}}",
@@ -12,7 +13,7 @@ Schema:
     "patch": "unified diff beginning with diff --git, or empty string",
     "rationale": "short rationale"
   },
-  "reason": "why this patch is safe based on the generated knowledge"
+  "reason": "why this patch is safe"
 }
 
 ## Budget Limits

@@ -4,15 +4,15 @@ Return exactly one JSON object.
 Schema:
 {
   "sub_tasks": {
-    "step_1": "Identify the exact lines causing the bottleneck.",
-    "step_2": "Draft the optimized logic (e.g., using a better data structure).",
-    "step_3": "Verify that edge cases in the new logic match the old logic."
+    "step_1": "Identify the exact logic causing the bottleneck.",
+    "step_2": "Draft the smallest safe optimization.",
+    "step_3": "Verify that edge cases still match the original behavior."
   },
   "action": "propose_change",
   "args": {
     "target": "{{current_target}}",
     "strategy": "chosen strategy",
-    "patch": "unified diff or empty string",
+    "patch": "unified diff beginning with diff --git, or empty string",
     "rationale": "short rationale"
   },
   "reason": "why this patch is safe"

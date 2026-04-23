@@ -1,10 +1,14 @@
-Phase 1: Generate knowledge about mathematical equivalence when optimizing {{current_target}}.
-Phase 2: Propose the patch.
+Propose a patch for `{{current_target}}` and self-check the patch format and safety.
 
 Return exactly one JSON object.
 Schema:
 {
-  "generated_knowledge": "State the shortest rules required to keep the output identical here.",
+  "self_check": {
+    "target_specific": "yes",
+    "patch_valid": "yes",
+    "safety_valid": "yes",
+    "json_valid": "yes"
+  },
   "action": "propose_change",
   "args": {
     "target": "{{current_target}}",
@@ -12,7 +16,7 @@ Schema:
     "patch": "unified diff beginning with diff --git, or empty string",
     "rationale": "short rationale"
   },
-  "reason": "why this patch is safe based on the generated knowledge"
+  "reason": "why this patch is safe"
 }
 
 ## Budget Limits

@@ -1,6 +1,9 @@
 Phase 1: Generate knowledge about what each tool does.
 Phase 2: Decide the next action.
 Allowed: {{allowed_actions}}
+Session summary: {{session_summary}}
+Action guidance: {{action_guidance}}
+Latest result: {{latest_result}}
 
 Return exactly one JSON object.
 The runtime reads only `action`, `args`, and `reason`.
@@ -13,7 +16,7 @@ Match your generated knowledge to the real args contract:
 
 Schema:
 {
-  "generated_knowledge": "Briefly describe the purpose of the allowed tools in the current state.",
+  "generated_knowledge": "At most 3 short evidence-grounded tool facts for the current state.",
   "action": "tool_name",
   "args": { ... },
   "reason": "short final rationale"

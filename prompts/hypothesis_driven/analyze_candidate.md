@@ -1,8 +1,10 @@
-Select one concrete optimization hotspot from the visible evidence.
+Pick one hotspot and state a measurement-backed hypothesis for it.
 
 Return exactly one JSON object.
 Schema:
 {
+  "hypothesis": "why this hotspot should dominate the current metrics",
+  "expected_signal": "which metric should move if the hypothesis is right",
   "action": "analyze_candidate",
   "args": {
     "target": "concrete file/function/subsystem",

@@ -1,8 +1,13 @@
-Select one concrete optimization hotspot from the visible evidence.
+Pick one concrete hotspot and self-check that it is specific enough.
 
 Return exactly one JSON object.
 Schema:
 {
+  "self_check": {
+    "target_specific": "yes",
+    "strategy_specific": "yes",
+    "json_valid": "yes"
+  },
   "action": "analyze_candidate",
   "args": {
     "target": "concrete file/function/subsystem",

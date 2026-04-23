@@ -1,11 +1,14 @@
-Select one concrete optimization hotspot from the visible evidence.
+Select one concrete hotspot using the output style shown below.
 
 Return exactly one JSON object.
+Example:
+{"action":"analyze_candidate","args":{"target":"dominant_inner_loop","strategy":"reduce repeated rescans with one pass","rationale":"Highest expected gain with low semantic risk."},"reason":"Best measured optimization target."}
+
 Schema:
 {
   "action": "analyze_candidate",
   "args": {
-    "target": "concrete file/function/subsystem",
+    "target": "concrete hotspot",
     "strategy": "hardware-first or algorithm-first strategy",
     "rationale": "short reason"
   },

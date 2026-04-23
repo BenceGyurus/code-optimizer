@@ -4,7 +4,8 @@ Schema:
 {
   "action": "evaluate_result",
   "args": {
-    "continue_optimization": false
+    "continue_optimization": false,
+    "target_speedup": 1.01
   },
   "reason": "short"
 }

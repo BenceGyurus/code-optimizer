@@ -1,5 +1,8 @@
-Based on the current state, apply your engineering expertise to select the next action.
+Based on the current evidence, apply your engineering expertise to select the next action.
 Allowed actions: {{allowed_actions}}
+Session summary: {{session_summary}}
+Action guidance: {{action_guidance}}
+Latest result: {{latest_result}}
 
 Return exactly one JSON object.
 Copy `action` exactly from Allowed actions.
@@ -7,7 +10,7 @@ Use the actual tool contracts, not imagined ones:
 - `analyze_candidate`: `target`, `strategy`, `rationale`
 - `propose_change`: `target`, `strategy`, `patch`, `rationale`
 - `apply_and_verify`: usually empty args because the runner injects patch and commands
-- `evaluate_result`: baseline and optimized measurements are auto-injected
+- `evaluate_result`: baseline and optimized measurements are auto-injected; `target_speedup` is optional
 
 Schema:
 {

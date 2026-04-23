@@ -1,18 +1,17 @@
-Phase 1: Generate knowledge about mathematical equivalence when optimizing {{current_target}}.
-Phase 2: Propose the patch.
+Propose the smallest safe patch for `{{current_target}}`.
 
 Return exactly one JSON object.
+If you cannot satisfy every hard constraint, return an empty patch instead of an invalid or oversized one.
 Schema:
 {
-  "generated_knowledge": "State the shortest rules required to keep the output identical here.",
   "action": "propose_change",
   "args": {
     "target": "{{current_target}}",
-    "strategy": "chosen strategy",
+    "strategy": "specific chosen strategy",
     "patch": "unified diff beginning with diff --git, or empty string",
     "rationale": "short rationale"
   },
-  "reason": "why this patch is safe based on the generated knowledge"
+  "reason": "why this patch is safe"
 }
 
 ## Budget Limits

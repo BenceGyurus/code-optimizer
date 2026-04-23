@@ -1,21 +1,19 @@
-Advance the workflow toward the highest expected measured gain.
-Allowed actions: {{allowed_actions}}
-Session summary: {{session_summary}}
-Counters: {{counters}}
-Action guidance: {{action_guidance}}
+Choose the next action from: {{allowed_actions}}.
 
-Return exactly one JSON object. No markdown. No preambles.
-Copy `action` exactly from Allowed actions.
-Use the tool's real args contract:
+Return exactly one JSON object. No markdown.
+Use the real tool contracts:
 - `analyze_candidate`: `target`, `strategy`, `rationale`
 - `propose_change`: `target`, `strategy`, `patch`, `rationale`
 - `apply_and_verify`: usually `{}`
 - `evaluate_result`: usually `continue_optimization` and optional `target_speedup`
-- `run_baseline`, `profile_execution`, `remeasure`: usually `{}`
+
+Schema:
 {
+  "hypothesis": "short statement of the expected gain",
+  "expected_signal": "runtime or hardware metric expected to improve",
   "action": "tool_name",
   "args": { ... },
-  "reason": "10 words max"
+  "reason": "short"
 }
 
 ## Budget Limits

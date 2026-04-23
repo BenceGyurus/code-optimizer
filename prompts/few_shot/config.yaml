@@ -1,0 +1,3 @@
+name: few_shot
+description: Few-shot runtime-contract prompting strategy.
+version: 1.0.0

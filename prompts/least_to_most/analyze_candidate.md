@@ -4,9 +4,9 @@ Return exactly one JSON object.
 Schema:
 {
   "sub_tasks": {
-    "step_1": "List all identified bottlenecks from the profile.",
-    "step_2": "Filter out bottlenecks that risk changing the mathematical output.",
-    "step_3": "Rank the remaining bottlenecks by potential speedup."
+    "step_1": "List the main bottlenecks from the visible evidence.",
+    "step_2": "Filter out changes that risk mathematical differences.",
+    "step_3": "Rank the remaining hotspots by likely measured gain."
   },
   "action": "analyze_candidate",
   "args": {

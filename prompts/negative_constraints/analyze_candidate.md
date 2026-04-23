@@ -1,4 +1,4 @@
-Select one concrete optimization hotspot from the visible evidence.
+Select one concrete hotspot while avoiding generic targets and vague strategies.
 
 Return exactly one JSON object.
 Schema:
@@ -6,7 +6,7 @@ Schema:
   "action": "analyze_candidate",
   "args": {
     "target": "concrete file/function/subsystem",
-    "strategy": "hardware-first or algorithm-first strategy",
+    "strategy": "specific hardware-first or algorithm-first strategy",
     "rationale": "short reason"
   },
   "reason": "why this target is best now"

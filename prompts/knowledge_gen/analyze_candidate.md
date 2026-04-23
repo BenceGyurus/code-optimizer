@@ -4,7 +4,7 @@ Phase 2: Select the target.
 Return exactly one JSON object.
 Schema:
 {
-  "generated_knowledge": "List 2-3 common performance anti-patterns relevant here.",
+  "generated_knowledge": "List 2-3 short anti-patterns grounded in the visible code and latest metrics.",
   "action": "analyze_candidate",
   "args": {
     "target": "file/function or subsystem",

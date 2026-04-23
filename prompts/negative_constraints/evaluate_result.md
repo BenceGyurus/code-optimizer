@@ -1,4 +1,4 @@
-Evaluate runtime and hardware counters. Stop on accepted improvement; continue only if budget and progress justify it.
+Compare the latest result against the baseline and continue only if the measured gain clearly justifies another iteration.
 
 Return exactly one JSON object.
 Schema:
@@ -6,11 +6,10 @@ Schema:
   "action": "evaluate_result",
   "args": {
     "continue_optimization": false,
-    "target_speedup": 1.02
+    "target_speedup": 1.01
   },
   "reason": "stop or continue rationale"
 }
-
 
 ## Budget Limits
 Limits: {{guardrail_limits}}

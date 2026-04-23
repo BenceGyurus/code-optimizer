@@ -1,4 +1,4 @@
-Analyze the latest baseline/profile result like a Senior Engineer. Find the most critical bottleneck.
+Analyze the latest baseline/profile result like a Senior Engineer. Find the critical path with the best ROI.
 
 Return exactly one JSON object.
 Schema:
@@ -7,7 +7,7 @@ Schema:
   "args": {
     "target": "file/function or subsystem",
     "strategy": "hardware-first or algorithm-first strategy",
-    "rationale": "short engineering rationale"
+    "rationale": "short engineering rationale with expected gain"
   },
   "reason": "why this target is the critical path"
 }

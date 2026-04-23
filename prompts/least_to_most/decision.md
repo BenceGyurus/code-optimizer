@@ -1,6 +1,8 @@
 Based on the current state, determine the next action by breaking the decision into steps.
 Allowed actions: {{allowed_actions}}
 Current session info: {{session_summary}}
+Action guidance: {{action_guidance}}
+Latest result: {{latest_result}}
 
 Return exactly one JSON object.
 The runtime consumes `action`, `args`, and `reason`.

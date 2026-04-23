@@ -1,16 +1,20 @@
-Evaluate runtime and hardware counters. Stop on accepted improvement; continue only if budget and progress justify it.
+Evaluate the latest result and self-check that the stop/continue decision matches the measured evidence.
 
 Return exactly one JSON object.
 Schema:
 {
+  "self_check": {
+    "metric_reading_valid": "yes",
+    "decision_consistent": "yes",
+    "json_valid": "yes"
+  },
   "action": "evaluate_result",
   "args": {
     "continue_optimization": false,
-    "target_speedup": 1.02
+    "target_speedup": 1.01
   },
   "reason": "stop or continue rationale"
 }
-
 
 ## Budget Limits
 Limits: {{guardrail_limits}}

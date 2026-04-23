@@ -1,16 +1,17 @@
-Evaluate runtime and hardware counters. Stop on accepted improvement; continue only if budget and progress justify it.
+Compare the observed metrics against the expected hypothesis and decide whether to continue.
 
 Return exactly one JSON object.
 Schema:
 {
+  "hypothesis": "what was expected to improve",
+  "expected_signal": "what metric was supposed to move",
   "action": "evaluate_result",
   "args": {
     "continue_optimization": false,
-    "target_speedup": 1.02
+    "target_speedup": 1.01
   },
   "reason": "stop or continue rationale"
 }
-
 
 ## Budget Limits
 Limits: {{guardrail_limits}}

@@ -1,10 +1,10 @@
-Phase 1: Generate knowledge about mathematical equivalence when optimizing {{current_target}}.
-Phase 2: Propose the patch.
+Propose a patch for `{{current_target}}` and state the expected measurable effect.
 
 Return exactly one JSON object.
 Schema:
 {
-  "generated_knowledge": "State the shortest rules required to keep the output identical here.",
+  "hypothesis": "why this exact code change should help",
+  "expected_signal": "runtime, cache, branch, or allocation metric expected to improve",
   "action": "propose_change",
   "args": {
     "target": "{{current_target}}",
@@ -12,7 +12,7 @@ Schema:
     "patch": "unified diff beginning with diff --git, or empty string",
     "rationale": "short rationale"
   },
-  "reason": "why this patch is safe based on the generated knowledge"
+  "reason": "why this patch is safe"
 }
 
 ## Budget Limits

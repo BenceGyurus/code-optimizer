@@ -1,10 +1,11 @@
-Compare metrics. Stop if diminishing returns are reached; otherwise, continue.
+Compare metrics against the expected goal. Stop if diminishing returns are reached.
 
-Return exactly one JSON object. No markdown, no preambles.
+Return exactly one JSON object. No markdown. No preambles.
 {
   "action": "evaluate_result",
   "args": {
-    "continue_optimization": boolean
+    "continue_optimization": false,
+    "target_speedup": 1.02
   },
   "reason": "10 words max"
 }

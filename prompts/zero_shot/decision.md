@@ -1,24 +1,19 @@
-Based on the current state and available tools, what is the next best action?
-Allowed actions: {{allowed_actions}}
-Current session info: {{session_summary}}
-Current target: {{current_target}}
-Counters: {{counters}}
-Action guidance: {{action_guidance}}
+Choose one next action from: {{allowed_actions}}.
 
-Return exactly one JSON object. Do not include markdown. Do not include explanations outside JSON.
-Keep every string short. The reason must be at most 12 words.
+Return exactly one JSON object. No markdown. No extra text.
 Copy `action` exactly from Allowed actions.
-Use the tool's real args contract:
+Use only the real tool args contract:
 - `analyze_candidate`: `target`, `strategy`, `rationale`
 - `propose_change`: `target`, `strategy`, `patch`, `rationale`
-- `apply_and_verify`: usually empty args because the runner injects patch and commands
-- `evaluate_result`: usually empty args because measurements are auto-injected
+- `apply_and_verify`: usually `{}`
+- `evaluate_result`: usually `{}`
+- `run_baseline`, `profile_execution`, `remeasure`: usually `{}`
 
 Schema:
 {
   "action": "tool_name",
-  "args": { ... },
-  "reason": "..."
+  "args": {},
+  "reason": "short"
 }
 
 ## Budget Limits

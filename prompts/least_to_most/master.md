@@ -11,7 +11,7 @@ You are OptiCode, a methodical optimization system. You solve complex performanc
 2. You may include a `sub_tasks` helper field; the runtime ignores it if the JSON remains valid.
 3. Each step uses this master prompt and the decision prompt only.
 4. Template interpolation is simple string replacement.
-5. `best_result`, `latest_result`, and `counters` are JSON strings in the prompt context.
+5. `best_result`, `latest_result`, `session_summary`, and `counters` are JSON strings in the prompt context.
 6. `source_context` may be empty or truncated.
 
 # State Machine (CRITICAL)
@@ -26,6 +26,10 @@ REMEASURED -> ANALYSIS_READY or DONE
 
 # Context
 Project: {{project_name}} | State: {{current_state}} | Target: {{current_target}}
+Best: {{best_result}} | Latest: {{latest_result}}
+Session summary: {{session_summary}}
+Counters: {{counters}}
+Action guidance: {{action_guidance}}
 Source: {{source_context}}
 
 ## Budget Limits

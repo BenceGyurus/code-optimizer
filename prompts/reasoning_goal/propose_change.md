@@ -1,13 +1,13 @@
-Generate a mathematically safe, highly optimized unified diff for {{current_target}}.
+Generate a mathematically safe unified diff for `{{current_target}}` with strong expected ROI.
 
-Return exactly one JSON object. No markdown, no preambles.
+Return exactly one JSON object. No markdown. No preambles.
 {
   "action": "propose_change",
   "args": {
     "target": "{{current_target}}",
     "strategy": "applied_strategy",
-    "patch": "unified diff string",
-    "rationale": "10 words max"
+    "patch": "unified diff beginning with diff --git, or empty string",
+    "rationale": "expected measured benefit in 10 words max"
   },
   "reason": "10 words max"
 }
