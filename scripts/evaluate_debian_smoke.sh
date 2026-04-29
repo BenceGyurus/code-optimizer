@@ -15,7 +15,7 @@ PYTHON_BIN="${PYTHON_BIN:-${REPO_ROOT}/.venv/bin/python}"
 RUN_REPETITIONS="${RUN_REPETITIONS:-15}"
 OLLAMA_MODEL_ID="${OLLAMA_MODEL_ID:-qwen2.5-coder:7b}"
 EFFECTIVE_PROVIDER_MODELS="${PROVIDER_MODELS:-openrouter=openai/gpt-oss-120b:free}"
-EFFECTIVE_PROMPT_PACKS="${PROMPT_PACKS:-few_shot.env}"
+EFFECTIVE_PROMPT_PACKS="${PROMPT_PACKS:-few_shot}"
 
 if [[ ! -x "${PYTHON_BIN}" ]]; then
   echo "Python interpreter not found: ${PYTHON_BIN}" >&2
