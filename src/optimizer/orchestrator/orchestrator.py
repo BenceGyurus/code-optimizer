@@ -76,10 +76,9 @@ class Orchestrator:
 
     def run(self):
         logger.info(f"Starting optimization session for {self.project_path}")
-        workspace_suffix = f" workspace={self.project_path}" if self.project_path != self.original_project_path else ""
         self._emit(
             "SESSION",
-            f"project={self.original_project_path}{workspace_suffix} provider={self.provider.name} model={self.model}",
+            f"project={self.original_project_path} provider={self.provider.name} model={self.model} prompt={self.prompt_pack.name}",
             style="bold cyan",
         )
         
@@ -148,7 +147,7 @@ class Orchestrator:
                 self._emit("RECOVER", recovery_note, style="yellow")
             
             logger.info(f"LLM Decision: {action_name} - Reason: {reason}")
-            self._emit("DECIDE", f"{action_name}  reason={self._short(reason, 120)}", style="green")
+            self._emit("DECIDE", f"{action_name} | {self._short(reason, 100)}", style="green")
             normalized_action = self._normalize_action(action_name, allowed_tools, current_state)
             
             if normalized_action is None:
@@ -211,11 +210,17 @@ class Orchestrator:
                     return
 
             self.guardrails.record_tool_call()
-            self._emit("TOOL", f"start #{self.guardrails.tool_calls_count} {action_name} {self._format_args(visible_args)}", style="blue")
+            start_summary = self._format_tool_start(action_name, visible_args, current_state)
+            self._emit(
+                "TOOL",
+                f"#{self.guardrails.tool_calls_count} {action_name} start{(' ' + start_summary) if start_summary else ''}",
+                style="blue",
+            )
             
             result = tool.execute(**args)
             result_style = "green" if result.success else "red"
-            self._emit("TOOL", f"end   {action_name} success={result.success} next={result.next_state.name if result.next_state else 'none'}", style=result_style)
+            status = "ok" if result.success else "failed"
+            self._emit("TOOL", f"{action_name} {status} -> {result.next_state.name if result.next_state else 'none'}", style=result_style)
             
             self.artifact_store.save_artifact(
                 name=f"tool_output_{action_name}",
@@ -272,28 +277,48 @@ class Orchestrator:
     def _emit_output_summary(self, action_name: str, output: Any) -> None:
         if not isinstance(output, dict):
             return
+        if action_name == "run_baseline":
+            test_summary = self._format_test_summary(output.get("test"))
+            benchmark_summary = self._format_benchmark_summary(output.get("benchmark"))
+            if test_summary:
+                self._emit("TEST", test_summary, style="green")
+            if benchmark_summary:
+                self._emit("BENCH", benchmark_summary, style="cyan")
         if action_name == "propose_change":
             has_patch = bool(output.get("has_patch"))
-            self._emit("CHANGE", f"proposal target={output.get('target')} has_patch={has_patch}", style="green" if has_patch else "yellow")
+            target = output.get("target") or "unknown"
+            strategy = output.get("strategy") or output.get("rationale") or ""
+            self._emit(
+                "CHANGE",
+                f"proposal target={target} patch={'yes' if has_patch else 'no'} {self._short(strategy, 80)}",
+                style="green" if has_patch else "yellow",
+            )
             if has_patch:
                 patch = output.get("patch") or ""
-                self._emit("PATCH", self._short(patch, 500), style="cyan")
+                self._emit("PATCH", self._format_patch_summary(patch), style="cyan")
         if action_name == "apply_and_verify":
             verification = output.get("verification_result") or {}
             if verification.get("noop_patch"):
                 detail = "; ".join(verification.get("short_error_summary") or ["empty patch"])
                 self._emit("CHANGE", f"no file changes: {self._short(detail, 220)}", style="yellow")
             elif verification.get("patch_applied"):
-                self._emit("CHANGE", "file changes applied", style="green")
+                self._emit("CHANGE", "patch applied", style="green")
             elif verification.get("short_error_summary"):
                 self._emit("CHANGE", f"patch not applied: {self._short('; '.join(verification['short_error_summary']), 220)}", style="yellow")
+            elif verification.get("test_success"):
+                self._emit("VERIFY", "tests passed", style="green")
         if action_name in {"profile_execution", "remeasure"}:
+            benchmark_summary = self._format_benchmark_summary(output.get("benchmark"))
+            if benchmark_summary:
+                self._emit("BENCH", benchmark_summary, style="cyan")
             summary = output.get("hardware_summary") or {}
             profiler = output.get("profiler") or {}
             if profiler and profiler.get("supported") is False:
-                self._emit("HW", self._short(str(profiler.get("message") or "Hardware counters unavailable on this machine."), 500), style="yellow")
+                self._emit("HW", self._short(str(profiler.get("message") or "Hardware counters unavailable on this machine."), 160), style="yellow")
             elif summary:
-                self._emit("HW", self._short(json.dumps(summary, ensure_ascii=False), 500), style="cyan")
+                self._emit("HW", self._format_hardware_summary(summary), style="cyan")
+        if action_name == "evaluate_result":
+            self._emit("RESULT", self._format_evaluation_summary(output), style="bold green")
 
     def _should_stop_after_noop(self, action_name: str, output: Any) -> bool:
         if action_name != "apply_and_verify" or not isinstance(output, dict):
@@ -857,15 +882,130 @@ class Orchestrator:
         if not self.verbose:
             return
         if self._last_state_header != current_state:
-            console.rule(f"[bold cyan]{current_state.name}[/bold cyan]")
+            console.print()
+            line = Text(f"{current_state.name}", style="bold cyan")
+            line.append(f"  allowed: {', '.join(allowed_tools)}", style="dim")
+            console.print(line)
             self._last_state_header = current_state
-        self._emit("ALLOW", ", ".join(allowed_tools), style="dim")
 
     def _emit(self, label: str, message: str, style: str = "white") -> None:
         if not self.verbose:
             return
         label_text = Text(f"{label:<9}", style=style)
         console.print(label_text, Text(str(message)))
+
+    def _format_tool_start(self, action_name: str, args: Dict[str, Any], current_state: State) -> str:
+        pieces: list[str] = []
+        if action_name in {"run_baseline", "remeasure"}:
+            pieces.append(self._repetition_text("benchmark", args.get("runtime_repetitions")))
+            if args.get("profile_cmd"):
+                pieces.append(self._repetition_text("profile", args.get("hardware_repetitions")))
+        elif action_name == "profile_execution":
+            pieces.append(self._repetition_text("profile", args.get("hardware_repetitions")))
+        elif action_name == "apply_and_verify":
+            pieces.append("apply patch" if current_state == State.PATCH_PROPOSED else "verify tests")
+
+        target = args.get("target")
+        if target:
+            pieces.append(f"target={self._short(str(target), 48)}")
+        strategy = args.get("strategy")
+        if strategy:
+            pieces.append(f"strategy={self._short(str(strategy), 64)}")
+        return "(" + ", ".join(piece for piece in pieces if piece) + ")" if pieces else ""
+
+    def _repetition_text(self, label: str, value: Any) -> str:
+        try:
+            count = int(value)
+        except (TypeError, ValueError):
+            count = 1
+        return f"{label} x{max(1, count)}"
+
+    def _format_test_summary(self, test_output: Any) -> str:
+        if not isinstance(test_output, dict):
+            return ""
+        raw_output = test_output.get("output") or ""
+        try:
+            summary = json.loads(raw_output)
+        except (TypeError, json.JSONDecodeError):
+            return "passed" if test_output.get("success") else "failed"
+        passed = summary.get("passed_runs")
+        repetitions = summary.get("repetitions")
+        failed = summary.get("failed_runs")
+        avg_duration = self._format_seconds(summary.get("average_duration"))
+        tests_per_run = summary.get("tests_per_run")
+        return f"{passed}/{repetitions} runs passed, failures={failed}, tests/run={tests_per_run}, avg={avg_duration}"
+
+    def _format_benchmark_summary(self, benchmark: Any) -> str:
+        if isinstance(benchmark, list):
+            runs = benchmark
+            durations = [run.get("duration") for run in runs if isinstance(run, dict) and isinstance(run.get("duration"), (int, float))]
+            if not durations:
+                return ""
+            return (
+                f"{len(durations)} runs, avg={self._format_seconds(sum(durations) / len(durations))}, "
+                f"min={self._format_seconds(min(durations))}, max={self._format_seconds(max(durations))}"
+            )
+        if not isinstance(benchmark, dict):
+            return ""
+        runs = benchmark.get("runs")
+        count = len(runs) if isinstance(runs, list) else 1
+        average = benchmark.get("average_duration") or benchmark.get("duration")
+        minimum = benchmark.get("min_duration")
+        maximum = benchmark.get("max_duration")
+        parts = [f"{count} runs", f"avg={self._format_seconds(average)}"]
+        if isinstance(minimum, (int, float)):
+            parts.append(f"min={self._format_seconds(minimum)}")
+        if isinstance(maximum, (int, float)):
+            parts.append(f"max={self._format_seconds(maximum)}")
+        return ", ".join(parts)
+
+    def _format_hardware_summary(self, summary: Dict[str, Any]) -> str:
+        metrics = [
+            ("cache_hit_rate", "cache hit"),
+            ("cache_miss_rate", "cache miss"),
+            ("l1_dcache_load_hit_rate", "L1 hit"),
+            ("l1_dcache_load_miss_rate", "L1 miss"),
+            ("branch_miss_rate", "branch miss"),
+            ("llc_load_hit_rate", "LLC hit"),
+        ]
+        parts = []
+        for key, label in metrics:
+            average = self._summary_average(summary.get(key))
+            if average is not None:
+                parts.append(f"{label}={average * 100:.2f}%")
+        return ", ".join(parts) if parts else "hardware counters collected"
+
+    def _summary_average(self, value: Any) -> Optional[float]:
+        if isinstance(value, dict):
+            average = value.get("average")
+            return float(average) if isinstance(average, (int, float)) else None
+        return float(value) if isinstance(value, (int, float)) else None
+
+    def _format_patch_summary(self, patch: str) -> str:
+        lines = (patch or "").splitlines()
+        added = sum(1 for line in lines if line.startswith("+") and not line.startswith("+++"))
+        removed = sum(1 for line in lines if line.startswith("-") and not line.startswith("---"))
+        files = []
+        for line in lines:
+            if line.startswith("*** Update File:"):
+                files.append(line.split(":", 1)[1].strip())
+            elif line.startswith("diff --git "):
+                parts = line.split()
+                if len(parts) >= 4:
+                    files.append(parts[3].removeprefix("b/"))
+        file_text = ", ".join(dict.fromkeys(files)) if files else "patch"
+        return f"{self._short(file_text, 80)} (+{added}/-{removed})"
+
+    def _format_evaluation_summary(self, output: Dict[str, Any]) -> str:
+        baseline = self._format_seconds(output.get("baseline_runtime"))
+        optimized = self._format_seconds(output.get("optimized_runtime"))
+        speedup = output.get("relative_speedup")
+        speedup_text = f"{speedup:.4f}x" if isinstance(speedup, (int, float)) else "n/a"
+        decision = output.get("decision") or "unknown"
+        return f"speedup={speedup_text}, baseline={baseline}, optimized={optimized}, decision={decision}"
+
+    def _format_seconds(self, value: Any) -> str:
+        return f"{value:.3f}s" if isinstance(value, (int, float)) else "n/a"
 
     def _format_args(self, args: Dict[str, Any]) -> str:
         compact = {}

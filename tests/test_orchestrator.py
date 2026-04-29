@@ -245,3 +245,56 @@ def test_finalize_summary_prefers_best_evaluation_snapshot(tmp_path):
 
     assert orchestrator._finalize_latest_result_for_summary() == best_snapshot
     assert orchestrator.session_state.latest_result == best_snapshot
+
+
+def test_console_tool_start_summary_hides_long_commands(tmp_path):
+    project_path = _project_file(tmp_path)
+    orchestrator = Orchestrator(
+        project_path=str(project_path),
+        provider=MockProvider(),
+        prompt_pack=_prompt_pack(),
+        guardrails_config=GuardrailsConfig(max_llm_calls=1, max_tool_calls=1),
+        interactive=False,
+        output_dir=str(tmp_path / "results"),
+    )
+
+    summary = orchestrator._format_tool_start(
+        "profile_execution",
+        {
+            "project_path": "/very/long/workspace/path/sample_project.py",
+            "test_cmd": "python -m unittest discover -s . -p sample_project.py",
+            "profile_cmd": "perf stat -e cache-misses -- python sample_project.py",
+            "hardware_repetitions": 30,
+        },
+        State.BASELINE_READY,
+    )
+
+    assert summary == "(profile x30)"
+    assert "project_path" not in summary
+    assert "unittest" not in summary
+    assert "perf stat" not in summary
+
+
+def test_console_hardware_summary_is_compact(tmp_path):
+    project_path = _project_file(tmp_path)
+    orchestrator = Orchestrator(
+        project_path=str(project_path),
+        provider=MockProvider(),
+        prompt_pack=_prompt_pack(),
+        guardrails_config=GuardrailsConfig(max_llm_calls=1, max_tool_calls=1),
+        interactive=False,
+        output_dir=str(tmp_path / "results"),
+    )
+
+    summary = orchestrator._format_hardware_summary(
+        {
+            "cache_hit_rate": {"average": 0.9618},
+            "cache_miss_rate": {"average": 0.0382},
+            "l1_dcache_load_hit_rate": {"average": 0.9783},
+            "branch_miss_rate": {"average": 0.00147},
+        }
+    )
+
+    assert summary == "cache hit=96.18%, cache miss=3.82%, L1 hit=97.83%, branch miss=0.15%"
+    assert "average" not in summary
+    assert "{" not in summary
