@@ -22,9 +22,11 @@ class AnalyzeCandidateTool(Tool):
         strategy: str = "inspect hot path",
         rationale: str = "",
         project_path: str = ".",
+        rejected_targets: object = None,
         **_: object,
     ) -> ToolResult:
-        fallback_target = _fallback_target(project_path, target)
+        rejected = _normalize_rejected_targets(rejected_targets)
+        fallback_target = _fallback_target(project_path, target, rejected)
         if fallback_target is not None:
             target = fallback_target
 
@@ -43,13 +45,31 @@ class AnalyzeCandidateTool(Tool):
         return ToolResult(success=True, output=output, next_state=State.ANALYSIS_READY, metadata=output)
 
 
-def _fallback_target(project_path: str, target: str) -> str | None:
-    if not _is_generic_target(target):
+def _fallback_target(project_path: str, target: str, rejected_targets: set[str]) -> str | None:
+    if not _is_generic_target(target) and target not in rejected_targets:
         return None
+    unchanged_candidate = None
     for candidate in preferred_targets_for_project(project_path):
-        if build_change_for_target(project_path, candidate) is not None:
+        if candidate in rejected_targets:
+            continue
+        change = build_change_for_target(project_path, candidate)
+        if change is None:
+            continue
+        if change.changed:
             return candidate
-    return None
+        if unchanged_candidate is None:
+            unchanged_candidate = candidate
+    return unchanged_candidate
+
+
+def _normalize_rejected_targets(value: object) -> set[str]:
+    if value is None:
+        return set()
+    if isinstance(value, str):
+        return {item.strip() for item in value.split(",") if item.strip()}
+    if isinstance(value, (list, tuple, set)):
+        return {str(item).strip() for item in value if str(item).strip()}
+    return set()
 
 
 def _is_generic_target(target: str) -> bool:

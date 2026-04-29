@@ -52,6 +52,7 @@ def run(
     max_iterations: int = typer.Option(5, "--max-iterations", help="Maximum optimization iterations."),
     runtime_repetitions: int = typer.Option(1, "--runtime-repetitions", help="Benchmark repetitions."),
     hardware_repetitions: int = typer.Option(1, "--hardware-repetitions", help="Profiler repetitions."),
+    allow_deterministic_fallback: bool = typer.Option(False, "--allow-deterministic-fallback/--no-deterministic-fallback", help="Allow deterministic fallback patches after model patch failures."),
     output_dir: str = typer.Option("results", "--output-dir", help="Output directory."),
     verbose: bool = typer.Option(True, "--verbose/--quiet", help="Print state, LLM and tool progress."),
 ):
@@ -90,6 +91,7 @@ def run(
         profile_command=profile_command,
         runtime_repetitions=runtime_repetitions,
         hardware_repetitions=hardware_repetitions,
+        allow_deterministic_fallback=allow_deterministic_fallback,
         output_dir=output_dir,
         model=model,
         verbose=verbose,
@@ -118,6 +120,7 @@ def evaluate(
     max_tool_calls: int = typer.Option(50, "--max-tool-calls", help="Maximum tool calls."),
     max_llm_calls: int = typer.Option(20, "--max-llm-calls", help="Maximum LLM calls."),
     max_iterations: int = typer.Option(5, "--max-iterations", help="Maximum optimization iterations."),
+    allow_deterministic_fallback: bool = typer.Option(False, "--allow-deterministic-fallback/--no-deterministic-fallback", help="Allow deterministic fallback patches after model patch failures."),
     verbose: bool = typer.Option(True, "--verbose/--quiet", help="Print per-run optimizer progress."),
 ):
     """Run an experiment matrix across providers, models and prompt packs."""
@@ -145,6 +148,7 @@ def evaluate(
         max_tool_calls=max_tool_calls,
         max_llm_calls=max_llm_calls,
         max_iterations=max_iterations,
+        allow_deterministic_fallback=allow_deterministic_fallback,
         verbose=verbose,
     )
     console.print(f"[bold cyan]Evaluation finished:[/bold cyan] {result_dir}")

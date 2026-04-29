@@ -9,6 +9,9 @@ def write_report(eval_dir: str, aggregate: Dict[str, object]) -> str:
         handle.write(f"- Total runs: {aggregate.get('total_runs')}\n")
         handle.write(f"- Successful runs: {aggregate.get('successful_runs')}\n")
         handle.write(f"- Failed runs: {aggregate.get('failed_runs')}\n")
+        handle.write(f"- Runs using deterministic fallback: {aggregate.get('fallback_runs')}\n")
+        handle.write(f"- Average deterministic fallbacks per run: {_fmt_summary(aggregate.get('fallback_count'))}\n")
+        handle.write(f"- Average patch apply failures per run: {_fmt_summary(aggregate.get('patch_apply_failures'))}\n")
         handle.write(f"- Average baseline runtime: {_fmt_summary(aggregate.get('baseline_runtime'))}\n")
         handle.write(f"- Average optimized runtime: {_fmt_summary(aggregate.get('optimized_runtime'))}\n")
         handle.write(f"- Average relative speedup: {_fmt_summary(aggregate.get('relative_speedup'))}\n")
@@ -23,13 +26,14 @@ def write_report(eval_dir: str, aggregate: Dict[str, object]) -> str:
         handle.write(f"- Average branch miss before: {_fmt_summary(aggregate.get('branch_miss_before'))}\n")
         handle.write(f"- Average branch miss after: {_fmt_summary(aggregate.get('branch_miss_after'))}\n")
         handle.write(f"- Average LLM calls: {_fmt_summary(aggregate.get('llm_calls'))}\n")
+        handle.write(f"- Average LLM recoveries per run: {_fmt_summary(aggregate.get('llm_recoveries'))}\n")
         handle.write(f"- Average tool calls: {_fmt_summary(aggregate.get('tool_calls'))}\n")
         handle.write(f"- Average iterations: {_fmt_summary(aggregate.get('iterations'))}\n")
         rows = sorted(aggregate.get("rows") or [], key=_sort_key, reverse=True)
         if rows:
             handle.write("\n## Per-Run Summary\n\n")
-            handle.write("| provider | model | prompt_pack | rep | state | baseline_s | optimized_s | speedup | cache_hit_before | cache_hit_after | llm_calls | tool_calls | iterations |\n")
-            handle.write("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
+            handle.write("| provider | model | prompt_pack | rep | state | baseline_s | optimized_s | speedup | fallback | patch_failures | cache_hit_before | cache_hit_after | llm_calls | tool_calls | iterations |\n")
+            handle.write("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
             for row in rows:
                 handle.write(
                     "| "
@@ -41,6 +45,8 @@ def write_report(eval_dir: str, aggregate: Dict[str, object]) -> str:
                     f"{_fmt_value(row.get('baseline_runtime'))} | "
                     f"{_fmt_value(row.get('optimized_runtime'))} | "
                     f"{_fmt_value(row.get('relative_speedup'))} | "
+                    f"{_fmt_bool(row.get('fallback_applied'))} | "
+                    f"{_fmt_value(row.get('patch_apply_failures'))} | "
                     f"{_fmt_nested_value(row.get('hardware_before'), 'cache_hit_rate')} | "
                     f"{_fmt_nested_value(row.get('hardware_after'), 'cache_hit_rate')} | "
                     f"{_fmt_value(row.get('llm_calls'))} | "
@@ -62,6 +68,12 @@ def _fmt_summary(summary: object) -> str:
 def _fmt_value(value: object) -> str:
     if isinstance(value, (int, float)):
         return f"{float(value):.6f}"
+    return "n/a"
+
+
+def _fmt_bool(value: object) -> str:
+    if isinstance(value, bool):
+        return "yes" if value else "no"
     return "n/a"
 
 

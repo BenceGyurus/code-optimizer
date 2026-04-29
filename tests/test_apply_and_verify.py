@@ -131,3 +131,46 @@ def test_apply_and_verify_rolls_back_begin_patch_on_failed_verification(tmp_path
     assert result.success is False
     assert verification["rollback_performed"] is True
     assert project_path.read_text(encoding="utf-8") == original
+
+
+def test_apply_and_verify_does_not_fallback_by_default(tmp_path):
+    source_path = Path(__file__).resolve().parents[1] / "examples" / "heavy_compute.py"
+    project_path = tmp_path / "sample_project.py"
+    original = source_path.read_text(encoding="utf-8")
+    project_path.write_text(original, encoding="utf-8")
+
+    result = ApplyAndVerifyTool().execute(
+        patch="diff --git a/sample_project.py b/sample_project.py\nnot a valid patch matrix_multiply\n",
+        project_path=str(project_path),
+        current_state=State.PATCH_PROPOSED.name,
+    )
+
+    verification = result.output["verification_result"]
+    assert result.success is True
+    assert result.next_state == State.ANALYSIS_READY
+    assert verification["patch_applied"] is False
+    assert verification["fallback_allowed"] is False
+    assert verification.get("fallback_applied") is not True
+    assert "Deterministic fallback disabled" in "; ".join(verification["short_error_summary"])
+    assert project_path.read_text(encoding="utf-8") == original
+
+
+def test_apply_and_verify_can_fallback_when_explicitly_enabled(tmp_path):
+    source_path = Path(__file__).resolve().parents[1] / "examples" / "heavy_compute.py"
+    project_path = tmp_path / "sample_project.py"
+    project_path.write_text(source_path.read_text(encoding="utf-8"), encoding="utf-8")
+
+    result = ApplyAndVerifyTool().execute(
+        patch="diff --git a/sample_project.py b/sample_project.py\nnot a valid patch matrix_multiply\n",
+        project_path=str(project_path),
+        current_state=State.PATCH_PROPOSED.name,
+        allow_deterministic_fallback=True,
+    )
+
+    verification = result.output["verification_result"]
+    assert result.success is True
+    assert result.next_state == State.PATCH_APPLIED
+    assert verification["patch_applied"] is True
+    assert verification["fallback_allowed"] is True
+    assert verification["fallback_applied"] is True
+    assert "row_result[j] += a_ik * row_b[j]" in project_path.read_text(encoding="utf-8")

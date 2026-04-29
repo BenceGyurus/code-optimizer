@@ -14,7 +14,7 @@ PROJECT_FILE="$(basename "${PROJECT}")"
 PYTHON_BIN="${PYTHON_BIN:-${REPO_ROOT}/.venv/bin/python}"
 RUN_REPETITIONS="${RUN_REPETITIONS:-15}"
 OLLAMA_MODEL_ID="${OLLAMA_MODEL_ID:-qwen2.5-coder:7b}"
-EFFECTIVE_PROVIDER_MODELS="${PROVIDER_MODELS:-openrouter=google/gemini-3.1-pro-preview,openrouter=anthropic/claude-sonnet-4.6,openrouter=openai/gpt-5.4,openrouter=openai/gpt-oss-120b,openrouter=moonshotai/kimi-k2.6,openrouter=openai/gpt-5.3-codex,openrouter=minimax/minimax-m2.7,openrouter=google/gemini-3-flash-preview,openrouter=deepseek/deepseek-v3.2,ollama=${OLLAMA_MODEL_ID}}"
+EFFECTIVE_PROVIDER_MODELS="${PROVIDER_MODELS:-openrouter=google/gemini-3.1-pro-preview,openrouter=openai/gpt-5.5,openrouter=openai/gpt-oss-120b,openrouter=moonshotai/kimi-k2.6,openrouter=openai/gpt-5.3-codex,openrouter=deepseek/deepseek-v3.2,ollama=${OLLAMA_MODEL_ID}}"
 EFFECTIVE_PROMPT_PACKS="${PROMPT_PACKS:-default,hardware_focus,role_create,zero_shot,agentic,reasoning_goal,cot,least_to_most,concise,knowledge_gen,few_shot,self_refine,hypothesis_driven,negative_constraints}"
 
 if [[ ! -x "${PYTHON_BIN}" ]]; then

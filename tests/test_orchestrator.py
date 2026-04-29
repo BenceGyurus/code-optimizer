@@ -223,6 +223,25 @@ def test_analyze_candidate_replaces_generic_target_with_deterministic_fallback(t
     assert result.output["rationale"]
 
 
+def test_analyze_candidate_avoids_rejected_target(tmp_path):
+    source = (
+        Path(__file__).resolve().parents[1] / "examples" / "heavy_compute.py"
+    ).read_text(encoding="utf-8")
+    project_path = tmp_path / "sample_project.py"
+    project_path.write_text(source, encoding="utf-8")
+
+    result = AnalyzeCandidateTool().execute(
+        project_path=str(project_path),
+        target="matrix_multiply",
+        strategy="loop reorder",
+        rationale="",
+        rejected_targets=["matrix_multiply"],
+    )
+
+    assert result.output["target"] != "matrix_multiply"
+    assert result.output["target"] in {"join_events_to_users_slow", "category_totals_slow", "moving_average_slow"}
+
+
 def test_finalize_summary_prefers_best_evaluation_snapshot(tmp_path):
     project_path = _project_file(tmp_path)
     orchestrator = Orchestrator(
@@ -298,3 +317,29 @@ def test_console_hardware_summary_is_compact(tmp_path):
     assert summary == "cache hit=96.18%, cache miss=3.82%, L1 hit=97.83%, branch miss=0.15%"
     assert "average" not in summary
     assert "{" not in summary
+
+
+def test_orchestrator_marks_regressed_target_as_rejected(tmp_path):
+    project_path = _project_file(tmp_path)
+    orchestrator = Orchestrator(
+        project_path=str(project_path),
+        provider=MockProvider(),
+        prompt_pack=_prompt_pack(),
+        guardrails_config=GuardrailsConfig(max_llm_calls=1, max_tool_calls=1),
+        interactive=False,
+        output_dir=str(tmp_path / "results"),
+    )
+    orchestrator.session_state.current_target = "matrix_multiply"
+
+    orchestrator._update_session_state(
+        "evaluate_result",
+        {
+            "baseline_runtime": 10.0,
+            "optimized_runtime": 11.0,
+            "relative_speedup": 0.9,
+            "decision": "continue",
+        },
+    )
+
+    assert orchestrator._rejected_targets() == ["matrix_multiply"]
+    assert "matrix_multiply" in orchestrator._action_guidance(State.ANALYSIS_READY)

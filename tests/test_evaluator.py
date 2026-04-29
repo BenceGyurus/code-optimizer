@@ -122,6 +122,49 @@ def test_collect_run_details_prefers_embedded_hardware_summary_from_final_summar
     assert details["hardware_after"] == {"cache_miss_rate": 0.09}
 
 
+def test_collect_run_details_reports_fallback_and_patch_failures(tmp_path: Path) -> None:
+    session_dir = tmp_path / "session"
+    session_dir.mkdir()
+    _write_yaml(
+        session_dir / "final_summary.yaml",
+        {
+            "tool_calls": 4,
+            "llm_calls": 3,
+            "iterations": 1,
+            "latest_result": {},
+        },
+    )
+    _write_artifact(
+        session_dir / "tool_output_apply_and_verify_100.json",
+        "apply_and_verify",
+        {
+            "verification_result": {
+                "patch_applied": True,
+                "fallback_applied": True,
+                "short_error_summary": ["bad patch", "fallback applied"],
+            }
+        },
+        timestamp=100.0,
+    )
+    _write_artifact(
+        session_dir / "tool_output_apply_and_verify_200.json",
+        "apply_and_verify",
+        {
+            "verification_result": {
+                "patch_applied": False,
+                "short_error_summary": ["bad patch"],
+            }
+        },
+        timestamp=200.0,
+    )
+
+    details = Evaluator()._collect_run_details(str(session_dir))
+
+    assert details["fallback_applied"] is True
+    assert details["fallback_count"] == 1
+    assert details["patch_apply_failures"] == 1
+
+
 def _write_artifact(path: Path, tool_name: str, content: dict, timestamp: float) -> None:
     path.write_text(
         json.dumps(

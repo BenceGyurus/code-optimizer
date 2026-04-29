@@ -37,6 +37,7 @@ class Evaluator:
         max_tool_calls: int = 50,
         max_llm_calls: int = 20,
         max_iterations: int = 5,
+        allow_deterministic_fallback: bool = False,
         verbose: bool = False,
     ) -> str:
         manager = ExperimentManager(self.output_dir)
@@ -70,6 +71,7 @@ class Evaluator:
                 profile_command=profile_command,
                 runtime_repetitions=runtime_repetitions,
                 hardware_repetitions=hardware_repetitions,
+                allow_deterministic_fallback=allow_deterministic_fallback,
                 output_dir=os.path.join(eval_dir, "per_run"),
                 model=config.model,
                 verbose=verbose,
@@ -108,6 +110,7 @@ class Evaluator:
             "session_dir": session_dir,
             "tool_calls": summary.get("tool_calls"),
             "llm_calls": summary.get("llm_calls"),
+            "llm_recoveries": summary.get("llm_recoveries"),
             "iterations": summary.get("iterations"),
             "baseline_runtime": _to_float(_read_nested(summary, "latest_result", "baseline_runtime")),
             "optimized_runtime": _to_float(_read_nested(summary, "latest_result", "optimized_runtime")),
@@ -115,17 +118,22 @@ class Evaluator:
             "hardware_before": embedded_hardware_before or _read_hardware_summary(baseline_profile),
             "hardware_after": embedded_hardware_after or _read_hardware_summary(optimized_profile),
             "tool_usage": tool_usage,
+            "fallback_applied": _fallback_applied(tool_outputs),
+            "fallback_count": _fallback_count(tool_outputs),
+            "patch_apply_failures": _patch_apply_failures(tool_outputs),
         }
 
     def _load_tool_outputs(self, session_dir: str) -> tuple[dict, dict]:
         latest_outputs: dict[str, tuple[float, Any]] = {}
         usage: dict[str, int] = {}
+        all_outputs: list[dict[str, Any]] = []
         for name in os.listdir(session_dir):
             if not (name.startswith("tool_output_") and name.endswith(".json")):
                 continue
             path = os.path.join(session_dir, name)
             with open(path, "r", encoding="utf-8") as handle:
                 payload = json.load(handle)
+            all_outputs.append(payload)
             tool_name = payload.get("tool_name") or name
             timestamp = payload.get("timestamp")
             timestamp_value = float(timestamp) if isinstance(timestamp, (int, float)) else float("-inf")
@@ -134,6 +142,7 @@ class Evaluator:
                 latest_outputs[tool_name] = (timestamp_value, payload.get("content") or {})
             usage[tool_name] = usage.get(tool_name, 0) + 1
         outputs = {tool_name: content for tool_name, (_, content) in latest_outputs.items()}
+        outputs["__all__"] = all_outputs
         return outputs, usage
 
 
@@ -192,3 +201,33 @@ def _coerce_numeric_summary(summary: dict) -> dict:
         if isinstance(value, (int, float)):
             reduced[key] = float(value)
     return reduced
+
+
+def _fallback_applied(tool_outputs: dict[str, Any]) -> bool:
+    return _fallback_count(tool_outputs) > 0
+
+
+def _fallback_count(tool_outputs: dict[str, Any]) -> int:
+    return sum(1 for verification in _apply_verifications(tool_outputs) if verification.get("fallback_applied") is True)
+
+
+def _patch_apply_failures(tool_outputs: dict[str, Any]) -> int:
+    return sum(
+        1
+        for verification in _apply_verifications(tool_outputs)
+        if verification.get("short_error_summary") and verification.get("patch_applied") is not True
+    )
+
+
+def _apply_verifications(tool_outputs: dict[str, Any]) -> list[dict]:
+    verifications: list[dict] = []
+    for payload in tool_outputs.get("__all__", []):
+        if not isinstance(payload, dict) or payload.get("tool_name") != "apply_and_verify":
+            continue
+        content = payload.get("content")
+        if not isinstance(content, dict):
+            continue
+        verification = content.get("verification_result")
+        if isinstance(verification, dict):
+            verifications.append(verification)
+    return verifications

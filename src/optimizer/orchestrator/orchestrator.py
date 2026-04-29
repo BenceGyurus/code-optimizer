@@ -38,6 +38,7 @@ class Orchestrator:
                  profile_command: Optional[str] = None,
                  runtime_repetitions: int = 1,
                  hardware_repetitions: int = 1,
+                 allow_deterministic_fallback: bool = False,
                  output_dir: str = "results",
                  model: Optional[str] = None,
                  verbose: bool = True):
@@ -64,6 +65,7 @@ class Orchestrator:
             "patch_cwd": self.workspace_root if self.project_path != self.original_project_path else None,
             "runtime_repetitions": runtime_repetitions,
             "hardware_repetitions": hardware_repetitions,
+            "allow_deterministic_fallback": allow_deterministic_fallback,
         }
         self.session_state = SessionState(
             current_state=self.state_machine.current_state,
@@ -144,6 +146,9 @@ class Orchestrator:
             reason = decision.get("reason", "No reason provided.")
 
             if recovery_note:
+                self.session_state.checkpoint_metadata["llm_recoveries"] = (
+                    int(self.session_state.checkpoint_metadata.get("llm_recoveries") or 0) + 1
+                )
                 self._emit("RECOVER", recovery_note, style="yellow")
             
             logger.info(f"LLM Decision: {action_name} - Reason: {reason}")
@@ -335,6 +340,8 @@ class Orchestrator:
             if key not in merged and value is not None:
                 merged[key] = value
         merged["current_state"] = current_state.name
+        if action_name == "analyze_candidate":
+            merged.setdefault("rejected_targets", self._rejected_targets())
         if action_name == "apply_and_verify" and not merged.get("patch"):
             if self.pending_patch:
                 merged["patch"] = self.pending_patch
@@ -359,6 +366,8 @@ class Orchestrator:
                 verification = output.get("verification_result") or {}
                 if verification.get("build_success") and verification.get("test_success"):
                     self.pending_patch = ""
+                elif verification.get("short_error_summary") or verification.get("noop_patch") or verification.get("fallback_applied"):
+                    self._record_rejected_target(self.session_state.current_target, "patch failed or fallback was needed")
             if action_name == "run_baseline":
                 self.session_state.checkpoint_metadata["baseline_result"] = output
                 self.session_state.best_result = output
@@ -373,6 +382,9 @@ class Orchestrator:
                     self.session_state.checkpoint_metadata.get("baseline_profile"),
                     self.session_state.checkpoint_metadata.get("optimized_result"),
                 )
+                speedup = snapshot.get("relative_speedup")
+                if isinstance(speedup, (int, float)) and speedup <= 1.0:
+                    self._record_rejected_target(self.session_state.current_target, f"runtime regression speedup={speedup:.6f}")
                 best_evaluation = self.session_state.checkpoint_metadata.get("best_evaluation")
                 if self._is_better_evaluation(snapshot, best_evaluation):
                     self.session_state.checkpoint_metadata["best_evaluation"] = snapshot
@@ -391,6 +403,8 @@ class Orchestrator:
             "tool_calls": self.guardrails.tool_calls_count,
             "llm_calls": self.guardrails.llm_calls_count,
             "iterations": self.guardrails.iterations_count,
+            "rejected_targets": self._rejected_targets(),
+            "llm_recoveries": self.session_state.checkpoint_metadata.get("llm_recoveries", 0),
             "latest_result": latest_result,
             "best_result": self.session_state.best_result,
         }
@@ -544,11 +558,15 @@ class Orchestrator:
 
     def _action_guidance(self, current_state: State) -> str:
         if current_state == State.ANALYSIS_READY:
-            return (
+            guidance = (
                 "You must propose a concrete unified diff patch when action is propose_change. "
                 "Use the source context. Prefer the largest nested loops, repeated rescans, dense numeric kernels, "
                 "branch-heavy dispatch, or allocation-heavy hot paths. The patch must start with diff --git."
             )
+            rejected = self._rejected_targets()
+            if rejected:
+                guidance += f" Avoid these previously failed or regressed targets in this session: {', '.join(rejected)}."
+            return guidance
         if current_state == State.PATCH_PROPOSED:
             return "If a patch exists, choose apply_and_verify. If no patch exists, choose rollback_to_checkpoint."
         return ""
@@ -708,8 +726,9 @@ class Orchestrator:
         allowed_tools: list[str],
     ) -> Optional[dict[str, Any]]:
         if current_state in {State.BASELINE_READY, State.PROFILE_READY} and "analyze_candidate" in allowed_tools:
-            preferred_targets = [str(self.session_state.current_target or "")]
-            preferred_targets.extend(preferred_targets_for_project(self.project_path))
+            current_target = str(self.session_state.current_target or "")
+            preferred_targets = [current_target if current_target not in self._rejected_targets() else ""]
+            preferred_targets.extend(self._preferred_targets())
             seen_targets = set()
             for target in preferred_targets:
                 if not target or target in seen_targets:
@@ -728,8 +747,9 @@ class Orchestrator:
                     }
 
         if current_state == State.ANALYSIS_READY and "propose_change" in allowed_tools:
-            preferred_targets = [str(self.session_state.current_target or "")]
-            preferred_targets.extend(preferred_targets_for_project(self.project_path))
+            current_target = str(self.session_state.current_target or "")
+            preferred_targets = [current_target if current_target not in self._rejected_targets() else ""]
+            preferred_targets.extend(self._preferred_targets())
             seen_targets = set()
             for target in preferred_targets:
                 if not target or target in seen_targets:
@@ -778,6 +798,26 @@ class Orchestrator:
             patch = latest.get("patch")
             return isinstance(patch, str) and bool(patch.strip())
         return False
+
+    def _record_rejected_target(self, target: Optional[str], reason: str) -> None:
+        if not target:
+            return
+        rejected = self.session_state.checkpoint_metadata.setdefault("rejected_targets", {})
+        if not isinstance(rejected, dict):
+            rejected = {}
+            self.session_state.checkpoint_metadata["rejected_targets"] = rejected
+        rejected[str(target)] = reason
+
+    def _rejected_targets(self) -> list[str]:
+        rejected = self.session_state.checkpoint_metadata.get("rejected_targets")
+        if not isinstance(rejected, dict):
+            return []
+        return sorted(str(target) for target in rejected.keys())
+
+    def _preferred_targets(self) -> list[str]:
+        preferred = list(preferred_targets_for_project(self.project_path))
+        rejected = set(self._rejected_targets())
+        return [target for target in preferred if target not in rejected] + [target for target in preferred if target in rejected]
 
     def _extract_json_object(self, content: str) -> str:
         text = (content or "").strip()

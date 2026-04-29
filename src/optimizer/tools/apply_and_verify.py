@@ -36,6 +36,7 @@ class ApplyAndVerifyTool(Tool):
         project_path: str = ".",
         current_state: Optional[str] = None,
         patch_cwd: Optional[str] = None,
+        allow_deterministic_fallback: bool = False,
         **_: object,
     ) -> ToolResult:
         patch = self._clean_patch(patch)
@@ -47,6 +48,7 @@ class ApplyAndVerifyTool(Tool):
             "rollback_performed": False,
             "patch_applied": False,
             "noop_patch": False,
+            "fallback_allowed": bool(allow_deterministic_fallback),
         }
         patch_cwd = patch_cwd or self._patch_cwd(project_path, patch)
 
@@ -67,7 +69,11 @@ class ApplyAndVerifyTool(Tool):
             apply_error = self._apply_patch(patch, project_path, patch_cwd)
             if apply_error is not None:
                 verification["short_error_summary"].append(apply_error)
-                fallback_applied = self._try_known_safe_fallback(project_path, patch, verification)
+                fallback_applied = False
+                if allow_deterministic_fallback:
+                    fallback_applied = self._try_known_safe_fallback(project_path, patch, verification)
+                else:
+                    verification["short_error_summary"].append("Deterministic fallback disabled; measuring model patch only.")
                 if not fallback_applied:
                     return ToolResult(
                         success=True,
