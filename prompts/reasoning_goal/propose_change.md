@@ -1,4 +1,4 @@
-Generate a mathematically safe unified diff for `{{current_target}}` with strong expected ROI.
+Generate a mathematically safe structured patch for `{{current_target}}` with strong expected ROI.
 
 Return exactly one JSON object. No markdown. No preambles.
 {
@@ -6,7 +6,7 @@ Return exactly one JSON object. No markdown. No preambles.
   "args": {
     "target": "{{current_target}}",
     "strategy": "applied_strategy",
-    "patch": "unified diff beginning with diff --git, or empty string",
+    "patch": "structured patch beginning with *** Begin Patch, or empty string",
     "rationale": "expected measured benefit in 10 words max"
   },
   "reason": "10 words max"

@@ -7,7 +7,7 @@ Schema:
   "args": {
     "target": "{{current_target}}",
     "strategy": "chosen strategy",
-    "patch": "unified diff beginning with diff --git, or empty string if unsafe",
+    "patch": "structured patch beginning with *** Begin Patch, or empty string if unsafe",
     "rationale": "short rationale"
   },
   "reason": "short"

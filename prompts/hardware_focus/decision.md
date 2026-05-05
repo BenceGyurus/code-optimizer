@@ -17,7 +17,7 @@ Decision policy:
 Runtime contract:
 - Copy `action` exactly from the allowed list.
 - `analyze_candidate` should name a concrete hotspot and hardware-aware strategy.
-- `propose_change` should include `target`, `strategy`, `patch`, and `rationale`; use a `diff --git` patch when a safe change exists.
+- `propose_change` should include `target`, `strategy`, `patch`, and `rationale`; use a structured `*** Begin Patch` patch when a safe change exists.
 - `apply_and_verify` usually needs empty args because the runner injects the stored patch and commands.
 - `evaluate_result` can stop even without hardware counters if runtime improved or the budget is tight.
 - Keep every string short.

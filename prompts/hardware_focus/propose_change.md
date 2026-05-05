@@ -1,4 +1,4 @@
-Propose a small unified diff that improves memory access, branch predictability, allocation behavior, or locality.
+Propose a small structured patch that improves memory access, branch predictability, allocation behavior, or locality.
 
 Return exactly one JSON object.
 Schema:
@@ -7,7 +7,7 @@ Schema:
   "args": {
     "target": "{{current_target}}",
     "strategy": "hardware-focused strategy",
-    "patch": "unified diff beginning with diff --git, or empty string if unsafe",
+    "patch": "structured patch beginning with *** Begin Patch, or empty string if unsafe",
     "rationale": "short rationale"
   },
   "reason": "why this patch is safe and hardware-relevant"

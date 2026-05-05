@@ -1,7 +1,7 @@
 from optimizer.evaluation.aggregator import ResultAggregator
 
 
-def test_aggregate_counts_done_without_complete_measurement_as_incomplete():
+def test_aggregate_counts_run_outcomes():
     aggregate = ResultAggregator().aggregate(
         [
             {
@@ -9,12 +9,37 @@ def test_aggregate_counts_done_without_complete_measurement_as_incomplete():
                 "baseline_runtime": 10.0,
                 "optimized_runtime": 8.0,
                 "relative_speedup": 1.25,
+                "verified_patch_applied": True,
             },
-            {"final_state": "DONE"},
+            {
+                "final_state": "DONE",
+                "baseline_runtime": 10.0,
+                "optimized_runtime": 11.0,
+                "relative_speedup": 0.91,
+                "verified_patch_applied": True,
+            },
+            {
+                "final_state": "DONE",
+                "baseline_runtime": 10.0,
+                "optimized_runtime": 9.5,
+                "relative_speedup": 1.05,
+                "verified_patch_applied": False,
+            },
+            {"final_state": "DONE", "verified_patch_applied": True},
             {"final_state": "FAILED"},
         ]
     )
 
     assert aggregate["successful_runs"] == 1
+    assert aggregate["optimized_runs"] == 1
+    assert aggregate["verified_no_improvement_runs"] == 1
+    assert aggregate["no_effect_runs"] == 1
     assert aggregate["failed_runs"] == 1
     assert aggregate["incomplete_runs"] == 1
+    assert [row["run_outcome"] for row in aggregate["rows"]] == [
+        "optimized",
+        "verified_no_improvement",
+        "no_effect",
+        "incomplete",
+        "failed",
+    ]

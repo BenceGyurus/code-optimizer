@@ -12,6 +12,7 @@ from rich.text import Text
 from optimizer.artifacts.store import ArtifactStore
 from optimizer.llm.context_builder import ContextBuilder
 from optimizer.llm.prompt_loader import PromptPack
+from optimizer.llm.source_context import SourceContextBuilder
 from optimizer.orchestrator.guardrails import Guardrails, GuardrailsConfig
 from optimizer.orchestrator.state_machine import State, StateMachine
 from optimizer.providers.base import LLMRequest, Provider
@@ -74,7 +75,11 @@ class Orchestrator:
         )
         self.pending_patch = ""
         self._last_state_header = None
-        self.source_context = self._load_source_context(display_path=self.original_project_path)
+        self.source_context_builder = SourceContextBuilder(
+            self.project_path,
+            display_path=self.original_project_path,
+            patch_path=self._patch_relative_path(),
+        )
 
     def run(self):
         logger.info(f"Starting optimization session for {self.project_path}")
@@ -115,7 +120,7 @@ class Orchestrator:
             latest_result=self.session_state.latest_result,
             current_target=self.session_state.current_target,
             counters=self.session_state.counters,
-            source_context=self.source_context,
+            source_context=self._source_context_for(current_state),
             action_guidance=self._action_guidance(current_state),
             guardrail_limits=self._guardrail_limits_text(),
             budget_status=self._budget_status_text(),
@@ -549,23 +554,33 @@ class Orchestrator:
         return relative_path
 
     def _load_source_context(self, limit: int = 14000, display_path: Optional[str] = None) -> str:
-        if not os.path.isfile(self.project_path):
-            return ""
-        try:
-            with open(self.project_path, "r", encoding="utf-8") as handle:
-                content = handle.read()
-        except UnicodeDecodeError:
-            return ""
-        if len(content) > limit:
-            content = content[:limit] + "\n# ... truncated ..."
-        return f"File: {display_path or self.project_path}\n```python\n{content}\n```"
+        builder = SourceContextBuilder(
+            self.project_path,
+            display_path=display_path,
+            patch_path=self._patch_relative_path(),
+            max_chars=limit,
+        )
+        return builder.render(self.state_machine.current_state, self.session_state.current_target)
+
+    def _source_context_for(self, current_state: State) -> str:
+        return self.source_context_builder.render(current_state, self.session_state.current_target)
+
+    def _patch_relative_path(self) -> str:
+        if os.path.isfile(self.project_path):
+            root = self.workspace_root if self.project_path != self.original_project_path else os.path.dirname(self.project_path)
+            return os.path.relpath(self.project_path, root)
+        return "."
 
     def _action_guidance(self, current_state: State) -> str:
         if current_state == State.ANALYSIS_READY:
             guidance = (
-                "You must propose a concrete unified diff patch when action is propose_change. "
+                "You must propose a concrete patch when action is propose_change. "
                 "Use the source context. Prefer the largest nested loops, repeated rescans, dense numeric kernels, "
-                "branch-heavy dispatch, or allocation-heavy hot paths. The patch must start with diff --git."
+                "branch-heavy dispatch, or allocation-heavy hot paths. Prefer a structured patch that starts with "
+                "*** Begin Patch because the runner can apply that format more reliably. "
+                "Patch format: first line *** Begin Patch; then *** Update File: <actual relative file path>; "
+                "then @@; then hunk lines prefixed with space, -, or +; last line *** End Patch. "
+                "Do not copy placeholder paths or placeholder hunk text."
             )
             rejected = self._rejected_targets()
             if rejected:

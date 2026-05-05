@@ -101,7 +101,12 @@ class MockProvider(Provider):
         return True
 
     def _project_file_from_prompt(self, prompt: str) -> str:
-        match = re.search(r"File:\s+([^\n]+)", prompt or "")
+        patch_match = re.search(r"(?m)^Patch path:\s+([^\n]+)", prompt or "")
+        if patch_match:
+            patch_path = patch_match.group(1).strip()
+            if patch_path and not os.path.isabs(patch_path) and not patch_path.startswith(".."):
+                return patch_path
+        match = re.search(r"(?m)^File:\s+([^\n]+)", prompt or "")
         if not match:
             return "project.py"
         path = match.group(1).strip()

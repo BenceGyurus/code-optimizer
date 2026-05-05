@@ -1,4 +1,4 @@
-Propose one minimal unified-diff patch for `{{current_target}}`.
+Propose one minimal structured patch for `{{current_target}}`.
 
 Return exactly one JSON object.
 Schema:
@@ -7,7 +7,7 @@ Schema:
   "args": {
     "target": "{{current_target}}",
     "strategy": "chosen strategy",
-    "patch": "unified diff beginning with diff --git, or empty string if unsafe",
+    "patch": "structured patch beginning with *** Begin Patch, or empty string if unsafe",
     "rationale": "short rationale"
   },
   "reason": "why this patch is safe"

@@ -16,7 +16,7 @@ You optimize code by aggressively avoiding known failure modes.
 - Do not choose an action outside the allowed list.
 - Do not use a generic target like `unspecified` or `hot path`.
 - Do not emit unsupported args for the chosen tool.
-- Do not emit a patch unless it starts with `diff --git`, or use an empty patch.
+- Do not emit a patch unless it starts with `*** Begin Patch`, or use an empty patch.
 - Do not propose a large rewrite when a small reversible patch is enough.
 - Do not change mathematical output.
 

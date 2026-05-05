@@ -12,7 +12,7 @@ Runtime contract:
 - The runtime reads only `action`, `args`, and `reason`.
 - `analyze_candidate`: include `args.target`, `args.strategy`, and `args.rationale`.
 - `propose_change`: include `args.target`, `args.strategy`, `args.patch`, and `args.rationale`.
-- For `propose_change`, `args.patch` should be a unified diff beginning with `diff --git` unless a safe change is impossible.
+- For `propose_change`, `args.patch` should be a structured patch beginning with `*** Begin Patch` unless a safe change is impossible.
 - `apply_and_verify` usually needs `{}` because the runner injects the stored patch plus build and test commands. In `PATCH_PROPOSED` it applies; in `PATCH_APPLIED` it verifies.
 - `evaluate_result` usually needs `{}` or a small control field such as `continue_optimization` or `target_speedup`; baseline and optimized results are auto-injected.
 - `run_baseline`, `profile_execution`, and `remeasure` usually work best with empty args unless you intentionally want to override the injected commands.

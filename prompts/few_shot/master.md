@@ -31,7 +31,7 @@ Output:
 # Example C
 Input summary: state=ANALYSIS_READY, allowed=propose_change, target=selected_hotspot
 Output:
-{"action":"propose_change","args":{"target":"selected_hotspot","strategy":"small semantics-preserving optimization","patch":"","rationale":"Empty patch is safer than a placeholder diff."},"reason":"No safe concrete diff available."}
+{"action":"propose_change","args":{"target":"selected_hotspot","strategy":"small semantics-preserving optimization","patch":"","rationale":"Empty patch is safer than a placeholder."},"reason":"No safe concrete patch available."}
 
 ## Budget Limits
 Limits: {{guardrail_limits}}

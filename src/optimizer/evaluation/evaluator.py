@@ -121,6 +121,8 @@ class Evaluator:
             "fallback_applied": _fallback_applied(tool_outputs),
             "fallback_count": _fallback_count(tool_outputs),
             "patch_apply_failures": _patch_apply_failures(tool_outputs),
+            "verified_patch_applied": _verified_patch_applied(tool_outputs),
+            "patch_application_count": _patch_application_count(tool_outputs),
         }
 
     def _load_tool_outputs(self, session_dir: str) -> tuple[dict, dict]:
@@ -219,7 +221,42 @@ def _patch_apply_failures(tool_outputs: dict[str, Any]) -> int:
     )
 
 
+def _verified_patch_applied(tool_outputs: dict[str, Any]) -> bool:
+    pending_model_patch = False
+    for verification in _apply_verification_events(tool_outputs):
+        if (
+            verification.get("patch_applied") is True
+            and verification.get("noop_patch") is not True
+            and verification.get("fallback_applied") is not True
+        ):
+            pending_model_patch = True
+            continue
+        if (
+            pending_model_patch
+            and verification.get("build_success") is True
+            and verification.get("test_success") is True
+            and not verification.get("short_error_summary")
+        ):
+            return True
+    return False
+
+
+def _patch_application_count(tool_outputs: dict[str, Any]) -> int:
+    return sum(
+        1
+        for verification in _apply_verifications(tool_outputs)
+        if verification.get("patch_applied") is True
+        and verification.get("noop_patch") is not True
+        and verification.get("fallback_applied") is not True
+    )
+
+
 def _apply_verifications(tool_outputs: dict[str, Any]) -> list[dict]:
+    return list(_apply_verification_events(tool_outputs))
+
+
+def _apply_verification_events(tool_outputs: dict[str, Any]) -> list[dict]:
+    events: list[tuple[float, dict]] = []
     verifications: list[dict] = []
     for payload in tool_outputs.get("__all__", []):
         if not isinstance(payload, dict) or payload.get("tool_name") != "apply_and_verify":
@@ -229,5 +266,9 @@ def _apply_verifications(tool_outputs: dict[str, Any]) -> list[dict]:
             continue
         verification = content.get("verification_result")
         if isinstance(verification, dict):
-            verifications.append(verification)
+            timestamp = payload.get("timestamp")
+            timestamp_value = float(timestamp) if isinstance(timestamp, (int, float)) else float("-inf")
+            events.append((timestamp_value, verification))
+    for _, verification in sorted(events, key=lambda item: item[0]):
+        verifications.append(verification)
     return verifications

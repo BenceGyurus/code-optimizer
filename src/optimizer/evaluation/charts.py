@@ -92,7 +92,9 @@ def write_charts(charts_dir: str, aggregate: Dict[str, object]) -> None:
     _success_failure_chart(
         plt,
         os.path.join(charts_dir, "success_failure.png"),
-        int(aggregate.get("successful_runs") or 0),
+        int(aggregate.get("optimized_runs") or aggregate.get("successful_runs") or 0),
+        int(aggregate.get("verified_no_improvement_runs") or 0),
+        int(aggregate.get("no_effect_runs") or 0),
         int(aggregate.get("failed_runs") or 0),
         int(aggregate.get("incomplete_runs") or 0),
     )
@@ -191,16 +193,26 @@ def _metric_chart(plt, path: str, labels: Sequence[str], rows: Sequence[Dict[str
     plt.close(fig)
 
 
-def _success_failure_chart(plt, path: str, successful_runs: int, failed_runs: int, incomplete_runs: int) -> None:
+def _success_failure_chart(
+    plt,
+    path: str,
+    optimized_runs: int,
+    verified_no_improvement_runs: int,
+    no_effect_runs: int,
+    failed_runs: int,
+    incomplete_runs: int,
+) -> None:
     fig, ax = plt.subplots(figsize=(6, 6))
-    total = successful_runs + failed_runs + incomplete_runs
+    total = optimized_runs + verified_no_improvement_runs + no_effect_runs + failed_runs + incomplete_runs
     if total == 0:
         _draw_no_data(ax, "No run outcomes available.")
     else:
         slices = [
-            ("success", successful_runs, "#16a34a"),
+            ("optimized", optimized_runs, "#16a34a"),
+            ("verified no improvement", verified_no_improvement_runs, "#f97316"),
+            ("no effect", no_effect_runs, "#f59e0b"),
             ("failure", failed_runs, "#dc2626"),
-            ("incomplete", incomplete_runs, "#f59e0b"),
+            ("incomplete", incomplete_runs, "#64748b"),
         ]
         slices = [item for item in slices if item[1] > 0]
         labels = [item[0] for item in slices]

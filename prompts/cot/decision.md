@@ -8,7 +8,7 @@ Runtime contract:
 - `thought_process` must contain at most 3 short items.
 - Copy `action` exactly from Allowed actions.
 - `analyze_candidate` needs `target`, `strategy`, `rationale`.
-- `propose_change` needs `target`, `strategy`, `patch`, `rationale`; the patch should start with `diff --git` when a safe change exists.
+- `propose_change` needs `target`, `strategy`, `patch`, `rationale`; the patch should start with `*** Begin Patch` when a safe change exists.
 - `apply_and_verify` is two-step: apply in `PATCH_PROPOSED`, verify in `PATCH_APPLIED`. It usually works with empty args because patch and commands are injected.
 - `evaluate_result` receives baseline and optimized results automatically unless you intentionally override them.
 

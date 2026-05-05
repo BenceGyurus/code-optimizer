@@ -67,6 +67,30 @@ def test_prompt_templates_do_not_use_placeholder_patch_examples():
             assert fragment not in text, f"placeholder patch leaked into {path}"
 
 
+def test_prompt_templates_do_not_require_diff_git_patches():
+    forbidden_fragments = (
+        "beginning with diff --git",
+        "start with `diff --git`",
+        "starts with `diff --git`",
+        "diff --git patch",
+        "unified diff",
+        "unified-diff",
+    )
+
+    for path in PROMPTS_DIR.rglob("*"):
+        if not path.is_file() or path.suffix not in {".md", ".yaml"}:
+            continue
+        text = path.read_text(encoding="utf-8").lower()
+        for fragment in forbidden_fragments:
+            assert fragment not in text, f"{fragment!r} leaked into {path}"
+
+
+def test_propose_change_prompts_prefer_structured_patch_format():
+    for path in PROMPTS_DIR.glob("*/propose_change.md"):
+        text = path.read_text(encoding="utf-8")
+        assert "*** Begin Patch" in text, f"structured patch guidance missing from {path}"
+
+
 def test_strategy_markers_remain_distinct():
     default_master = _load_pack("default").get_prompt("master")
     zero_shot_master = _load_pack("zero_shot").get_prompt("master")
