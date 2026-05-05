@@ -79,3 +79,29 @@ def test_source_context_respects_prompt_budget(tmp_path: Path) -> None:
     )
 
     assert len(context) <= 900 + len("\n\n# Source context truncated to fit prompt budget.")
+
+
+def test_source_context_downranks_final_aggregation_targets(tmp_path: Path) -> None:
+    source_path = tmp_path / "sample.py"
+    source_path.write_text(
+        SOURCE
+        + """
+
+def checksum(items):
+    total = 0
+    for row in items:
+        for value in row:
+            total += value
+    return total
+""",
+        encoding="utf-8",
+    )
+
+    context = SourceContextBuilder(str(source_path), display_path="sample.py", max_chars=6000).render(
+        State.PROFILE_READY,
+        target=None,
+    )
+
+    top_section = context.split("Top optimization candidates:", 1)[1].split("Use exact excerpt", 1)[0]
+    assert "final_aggregation" in context
+    assert not top_section.strip().startswith("1. checksum")

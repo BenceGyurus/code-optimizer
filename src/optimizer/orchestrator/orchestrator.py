@@ -20,6 +20,7 @@ from optimizer.state.models import SessionState
 from optimizer.state.store import SessionStateStore
 from optimizer.tools.evaluate_result import EvaluateResultTool
 from optimizer.tools.remeasure import RemeasureTool
+from optimizer.tools.apply_and_verify import ApplyAndVerifyTool
 from optimizer.tools.deterministic_heavy_compute import build_change_for_target, preferred_targets_for_project
 from optimizer.tools.registry import tool_registry
 
@@ -234,6 +235,8 @@ class Orchestrator:
             )
             
             result = tool.execute(**args)
+            if result.success:
+                self._handle_successful_tool_result(action_name, current_state, args, result)
             result_style = "green" if result.success else "red"
             status = "ok" if result.success else "failed"
             self._emit("TOOL", f"{action_name} {status} -> {result.next_state.name if result.next_state else 'none'}", style=result_style)
@@ -260,7 +263,7 @@ class Orchestrator:
                         self.state_machine.transition_to(State.FAILED)
                         return
                     self._emit("STATE", f"{current_state.name} -> {result.next_state.name}", style="cyan")
-                self._update_session_state(action_name, result.output)
+                self._update_session_state(action_name, result.output, args, current_state)
             else:
                 logger.warning(f"Tool {action_name} failed: {result.output}")
                 self._emit("FAIL", f"{action_name}: {self._short(str(result.output), 300)}", style="red")
@@ -370,7 +373,14 @@ class Orchestrator:
             merged.setdefault("optimized_result", metadata.get("optimized_result") or self.session_state.latest_result)
         return merged
 
-    def _update_session_state(self, action_name: str, output: Any) -> None:
+    def _update_session_state(
+        self,
+        action_name: str,
+        output: Any,
+        args: Optional[Dict[str, Any]] = None,
+        current_state: Optional[State] = None,
+    ) -> None:
+        args = args or {}
         self.session_state.latest_result = output
         if isinstance(output, dict):
             if output.get("target"):
@@ -381,12 +391,17 @@ class Orchestrator:
                 self.pending_patch = output["patch"]
             if action_name == "apply_and_verify":
                 verification = output.get("verification_result") or {}
+                if current_state == State.PATCH_PROPOSED and verification.get("patch_applied"):
+                    self.session_state.checkpoint_metadata["active_patch"] = args.get("patch") or ""
                 if verification.get("build_success") and verification.get("test_success"):
+                    active_patch = self.session_state.checkpoint_metadata.get("active_patch")
+                    self.session_state.checkpoint_metadata["last_verified_patch"] = active_patch or args.get("patch") or ""
                     self.pending_patch = ""
                 elif verification.get("short_error_summary") or verification.get("noop_patch") or verification.get("fallback_applied"):
                     self._record_rejected_target(self.session_state.current_target, "patch failed or fallback was needed")
                     if not verification.get("patch_applied") or verification.get("noop_patch") or verification.get("rollback_performed"):
                         self.pending_patch = ""
+                        self.session_state.checkpoint_metadata.pop("active_patch", None)
             if action_name == "run_baseline":
                 self.session_state.checkpoint_metadata["baseline_result"] = output
                 self.session_state.best_result = output
@@ -404,6 +419,11 @@ class Orchestrator:
                 speedup = snapshot.get("relative_speedup")
                 if isinstance(speedup, (int, float)) and speedup <= 1.0:
                     self._record_rejected_target(self.session_state.current_target, f"runtime regression speedup={speedup:.6f}")
+                    rollback = output.get("performance_rollback")
+                    if isinstance(rollback, dict) and rollback.get("rollback_performed"):
+                        self.pending_patch = ""
+                        self.session_state.checkpoint_metadata.pop("active_patch", None)
+                        self.session_state.checkpoint_metadata.pop("last_verified_patch", None)
                 best_evaluation = self.session_state.checkpoint_metadata.get("best_evaluation")
                 if self._is_better_evaluation(snapshot, best_evaluation):
                     self.session_state.checkpoint_metadata["best_evaluation"] = snapshot
@@ -439,7 +459,7 @@ class Orchestrator:
         latest = self.session_state.latest_result
         if not isinstance(latest, dict):
             return latest
-        if latest.get("relative_speedup") is not None:
+        if latest.get("relative_speedup") is not None and not _has_performance_rollback(latest):
             return latest
 
         baseline_result = self.session_state.checkpoint_metadata.get("baseline_result")
@@ -501,6 +521,8 @@ class Orchestrator:
             return False
         candidate_speedup = candidate.get("relative_speedup")
         if not isinstance(candidate_speedup, (int, float)):
+            return False
+        if candidate_speedup <= 1.0:
             return False
         if not isinstance(incumbent, dict):
             return True
@@ -573,6 +595,11 @@ class Orchestrator:
         return builder.render(self.state_machine.current_state, self.session_state.current_target)
 
     def _source_context_for(self, current_state: State) -> str:
+        self.source_context_builder = SourceContextBuilder(
+            self.project_path,
+            display_path=self.original_project_path,
+            patch_path=self._patch_relative_path(),
+        )
         return self.source_context_builder.render(current_state, self.session_state.current_target)
 
     def _patch_relative_path(self) -> str:
@@ -586,7 +613,9 @@ class Orchestrator:
             guidance = (
                 "You must propose a concrete patch when action is propose_change. "
                 "Use the source context. Prefer the largest nested loops, repeated rescans, dense numeric kernels, "
-                "branch-heavy dispatch, or allocation-heavy hot paths. Prefer a structured patch that starts with "
+                "branch-heavy dispatch, or allocation-heavy hot paths. Avoid final aggregation, checksum, summary, "
+                "reporting, validation, data-generation, or main/run functions unless profiling clearly proves they dominate runtime. "
+                "Prefer a structured patch that starts with "
                 "*** Begin Patch because the runner can apply that format more reliably. "
                 "Patch format: first line *** Begin Patch; then *** Update File: <actual relative file path>; "
                 "then @@; then hunk lines prefixed with space, -, or +; last line *** End Patch. "
@@ -600,7 +629,10 @@ class Orchestrator:
             return "If a patch exists, choose apply_and_verify. If no patch exists, choose rollback_to_checkpoint."
         if current_state == State.PROFILE_READY:
             rejected = self._rejected_targets()
-            guidance = "Choose analyze_candidate using the latest measurements and source outline."
+            guidance = (
+                "Choose analyze_candidate using the latest measurements and source outline. Prefer true compute kernels "
+                "over final aggregation, checksum, summary, validation, data-generation, or main/run functions."
+            )
             if rejected:
                 guidance += f" Avoid these previously failed or regressed targets in this session: {', '.join(rejected)}."
             return guidance
@@ -619,6 +651,60 @@ class Orchestrator:
             and bool(self.command_args.get("profile_cmd"))
             and "baseline_profile" not in self.session_state.checkpoint_metadata
         )
+
+    def _handle_successful_tool_result(
+        self,
+        action_name: str,
+        current_state: State,
+        args: Dict[str, Any],
+        result: Any,
+    ) -> None:
+        if action_name != "evaluate_result" or not isinstance(result.output, dict):
+            return
+        speedup = result.output.get("relative_speedup")
+        if not isinstance(speedup, (int, float)) or speedup > 1.0:
+            return
+        rollback = self._rollback_last_verified_patch("runtime regression", speedup)
+        if rollback:
+            result.output["performance_rollback"] = rollback
+            result.metadata = dict(result.metadata or {})
+            result.metadata["performance_rollback"] = rollback
+            if rollback.get("rollback_performed"):
+                result.next_state = State.PROFILE_READY
+
+    def _rollback_last_verified_patch(self, reason: str, speedup: float) -> dict[str, Any]:
+        patch = self.session_state.checkpoint_metadata.get("last_verified_patch")
+        rollback = {
+            "reason": reason,
+            "relative_speedup": speedup,
+            "rollback_performed": False,
+            "short_error_summary": [],
+        }
+        if not isinstance(patch, str) or not patch.strip():
+            rollback["short_error_summary"].append("No verified patch is available for rollback.")
+            return rollback
+
+        verification = {"short_error_summary": []}
+        ApplyAndVerifyTool()._rollback_patch(
+            self.project_path,
+            patch,
+            verification,
+            self.command_args.get("patch_cwd"),
+        )
+        rollback["rollback_performed"] = verification.get("rollback_performed") is True
+        rollback["short_error_summary"] = verification.get("short_error_summary") or []
+        if rollback["rollback_performed"]:
+            self._emit("ROLLBACK", f"reverted slower patch speedup={speedup:.6f}", style="yellow")
+        else:
+            detail = "; ".join(rollback["short_error_summary"] or ["unknown rollback failure"])
+            self._emit("ROLLBACK", f"failed to revert slower patch: {self._short(detail, 180)}", style="red")
+        self.artifact_store.save_artifact(
+            name="tool_output_performance_rollback",
+            tool_name="performance_rollback",
+            content=rollback,
+            metadata=rollback,
+        )
+        return rollback
 
     def _guardrail_limits_text(self) -> str:
         config = self.guardrails.config
@@ -1121,3 +1207,8 @@ class Orchestrator:
         if len(text) <= limit:
             return text
         return text[: limit - 3] + "..."
+
+
+def _has_performance_rollback(value: dict[str, Any]) -> bool:
+    rollback = value.get("performance_rollback")
+    return isinstance(rollback, dict) and rollback.get("rollback_performed") is True

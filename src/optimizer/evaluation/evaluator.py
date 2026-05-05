@@ -122,6 +122,7 @@ class Evaluator:
             "fallback_count": _fallback_count(tool_outputs),
             "patch_apply_failures": _patch_apply_failures(tool_outputs),
             "verification_failures": _verification_failures(tool_outputs),
+            "performance_rollbacks": _performance_rollback_count(tool_outputs),
             "verified_patch_applied": _verified_patch_applied(tool_outputs),
             "patch_application_count": _patch_application_count(tool_outputs),
         }
@@ -233,22 +234,20 @@ def _verification_failures(tool_outputs: dict[str, Any]) -> int:
 
 def _verified_patch_applied(tool_outputs: dict[str, Any]) -> bool:
     pending_model_patch = False
-    for verification in _apply_verification_events(tool_outputs):
-        if (
-            verification.get("patch_applied") is True
-            and verification.get("noop_patch") is not True
-            and verification.get("fallback_applied") is not True
-        ):
+    verified = False
+    for event_name, payload in _patch_lifecycle_events(tool_outputs):
+        if event_name == "performance_rollback" and payload.get("rollback_performed") is True:
+            pending_model_patch = False
+            verified = False
+            continue
+        verification = payload
+        if verification.get("patch_applied") is True and verification.get("noop_patch") is not True and verification.get("fallback_applied") is not True:
             pending_model_patch = True
             continue
-        if (
-            pending_model_patch
-            and verification.get("build_success") is True
-            and verification.get("test_success") is True
-            and not verification.get("short_error_summary")
-        ):
-            return True
-    return False
+        if pending_model_patch and verification.get("build_success") is True and verification.get("test_success") is True and not verification.get("short_error_summary"):
+            verified = True
+            pending_model_patch = False
+    return verified
 
 
 def _patch_application_count(tool_outputs: dict[str, Any]) -> int:
@@ -266,19 +265,36 @@ def _apply_verifications(tool_outputs: dict[str, Any]) -> list[dict]:
 
 
 def _apply_verification_events(tool_outputs: dict[str, Any]) -> list[dict]:
+    return [payload for event_name, payload in _patch_lifecycle_events(tool_outputs) if event_name == "apply_and_verify"]
+
+
+def _patch_lifecycle_events(tool_outputs: dict[str, Any]) -> list[tuple[str, dict]]:
     events: list[tuple[float, dict]] = []
-    verifications: list[dict] = []
+    lifecycle_events: list[tuple[str, dict]] = []
     for payload in tool_outputs.get("__all__", []):
-        if not isinstance(payload, dict) or payload.get("tool_name") != "apply_and_verify":
+        if not isinstance(payload, dict):
             continue
         content = payload.get("content")
         if not isinstance(content, dict):
             continue
-        verification = content.get("verification_result")
-        if isinstance(verification, dict):
+        tool_name = payload.get("tool_name")
+        event_payload = None
+        if tool_name == "apply_and_verify":
+            event_payload = content.get("verification_result")
+        elif tool_name == "performance_rollback":
+            event_payload = content
+        if isinstance(event_payload, dict):
             timestamp = payload.get("timestamp")
             timestamp_value = float(timestamp) if isinstance(timestamp, (int, float)) else float("-inf")
-            events.append((timestamp_value, verification))
-    for _, verification in sorted(events, key=lambda item: item[0]):
-        verifications.append(verification)
-    return verifications
+            events.append((timestamp_value, {"tool_name": tool_name, "payload": event_payload}))
+    for _, event in sorted(events, key=lambda item: item[0]):
+        lifecycle_events.append((str(event.get("tool_name")), event["payload"]))
+    return lifecycle_events
+
+
+def _performance_rollback_count(tool_outputs: dict[str, Any]) -> int:
+    return sum(
+        1
+        for event_name, payload in _patch_lifecycle_events(tool_outputs)
+        if event_name == "performance_rollback" and payload.get("rollback_performed") is True
+    )

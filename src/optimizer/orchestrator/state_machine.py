@@ -24,7 +24,7 @@ class StateMachine:
             State.PATCH_PROPOSED: {State.PATCH_APPLIED, State.ANALYSIS_READY, State.FAILED},
             State.PATCH_APPLIED: {State.PROFILE_READY, State.VERIFIED, State.FAILED},
             State.VERIFIED: {State.REMEASURED, State.ANALYSIS_READY, State.FAILED},
-            State.REMEASURED: {State.ANALYSIS_READY, State.DONE, State.FAILED},
+            State.REMEASURED: {State.PROFILE_READY, State.ANALYSIS_READY, State.DONE, State.FAILED},
             State.DONE: set(),
             State.FAILED: set(),
         }

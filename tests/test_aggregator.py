@@ -26,6 +26,7 @@ def test_aggregate_counts_run_outcomes():
                 "optimized_runtime": 9.5,
                 "relative_speedup": 1.05,
                 "verified_patch_applied": False,
+                "performance_rollbacks": 1,
             },
             {"final_state": "DONE", "verified_patch_applied": True},
             {"final_state": "FAILED"},
@@ -39,6 +40,7 @@ def test_aggregate_counts_run_outcomes():
     assert aggregate["failed_runs"] == 1
     assert aggregate["incomplete_runs"] == 1
     assert aggregate["verification_failures"]["average"] == 0.5
+    assert aggregate["performance_rollbacks"]["average"] == 1.0
     assert [row["run_outcome"] for row in aggregate["rows"]] == [
         "optimized",
         "verified_no_improvement",

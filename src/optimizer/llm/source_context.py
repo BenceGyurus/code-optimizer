@@ -206,6 +206,9 @@ class SourceContextBuilder:
         metrics.visit(node)
         tags = _tags_for_metrics(metrics, end - start + 1)
         score = _score_for_metrics(metrics, end - start + 1)
+        if _is_low_value_aggregation_name(name):
+            score -= 80
+            tags.append("final_aggregation")
         return DefinitionSummary(
             name=name,
             kind=kind,
@@ -349,6 +352,23 @@ def _score_for_metrics(metrics: _DefinitionMetrics, line_count: int) -> int:
         + metrics.if_count * 2
         + min(line_count, 120) // 8
     )
+
+
+def _is_low_value_aggregation_name(name: str) -> bool:
+    normalized = name.rsplit(".", 1)[-1].lower()
+    exact_names = {
+        "checksum",
+        "validate",
+        "verify",
+        "summary",
+        "report",
+        "main",
+        "run",
+        "benchmark",
+    }
+    prefixes = ("run_", "generate_", "build_", "make_", "print_", "format_", "summarize_")
+    suffixes = ("_checksum", "_summary", "_report", "_validate", "_verify")
+    return normalized in exact_names or normalized.startswith(prefixes) or normalized.endswith(suffixes)
 
 
 def _call_name(node: ast.AST) -> str | None:

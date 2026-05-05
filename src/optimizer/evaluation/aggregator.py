@@ -35,6 +35,7 @@ class ResultAggregator:
             "fallback_count": summarize(_numeric_values(rows, "fallback_count")),
             "patch_apply_failures": summarize(_numeric_values(rows, "patch_apply_failures")),
             "verification_failures": summarize(_numeric_values(rows, "verification_failures")),
+            "performance_rollbacks": summarize(_numeric_values(rows, "performance_rollbacks")),
             "patch_application_count": summarize(_numeric_values(rows, "patch_application_count")),
             "baseline_runtime": summarize(_numeric_values(rows, "baseline_runtime")),
             "optimized_runtime": summarize(_numeric_values(rows, "optimized_runtime")),
@@ -98,6 +99,8 @@ def _run_outcome(row: Dict[str, object]) -> str:
     )
     if not measured:
         return "incomplete"
+    if isinstance(row.get("performance_rollbacks"), (int, float)) and float(row.get("performance_rollbacks")) > 0:
+        return "no_effect"
     if row.get("verified_patch_applied") is not True:
         return "no_effect"
     speedup = row.get("relative_speedup")

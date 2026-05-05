@@ -9,6 +9,8 @@ from optimizer.orchestrator.orchestrator import Orchestrator
 from optimizer.orchestrator.state_machine import State
 from optimizer.providers.mock import MockProvider
 from optimizer.tools.analyze_candidate import AnalyzeCandidateTool
+from optimizer.tools.apply_and_verify import ApplyAndVerifyTool
+from optimizer.tools.base import ToolResult
 
 
 def _prompt_pack():
@@ -450,3 +452,72 @@ def test_failed_patch_verification_rolls_back_and_returns_to_candidate_selection
     assert orchestrator.state_machine.current_state == State.PROFILE_READY
     assert orchestrator.pending_patch == ""
     assert orchestrator._rejected_targets() == ["placeholder"]
+
+
+def test_regressed_verified_patch_is_rolled_back_before_next_candidate(tmp_path):
+    project_path = _project_file(tmp_path)
+    patch = """*** Begin Patch
+*** Update File: sample_project.py
+@@
+ def placeholder():
+-    return 1
++    return 2
+*** End Patch
+"""
+    orchestrator = Orchestrator(
+        project_path=str(project_path),
+        provider=MockProvider(),
+        prompt_pack=_prompt_pack(),
+        guardrails_config=GuardrailsConfig(max_llm_calls=1, max_tool_calls=1),
+        interactive=False,
+        output_dir=str(tmp_path / "results"),
+    )
+    ApplyAndVerifyTool().execute(
+        patch=patch,
+        project_path=orchestrator.project_path,
+        patch_cwd=orchestrator.workspace_root,
+        current_state=State.PATCH_PROPOSED.name,
+    )
+    assert "return 2" in Path(orchestrator.project_path).read_text(encoding="utf-8")
+    orchestrator.session_state.current_target = "placeholder"
+    orchestrator.session_state.checkpoint_metadata["last_verified_patch"] = patch
+    result = ToolResult(
+        success=True,
+        output={
+            "baseline_runtime": 10.0,
+            "optimized_runtime": 11.0,
+            "relative_speedup": 0.9,
+            "decision": "continue",
+        },
+        next_state=State.ANALYSIS_READY,
+        metadata={},
+    )
+
+    orchestrator._handle_successful_tool_result("evaluate_result", State.REMEASURED, {}, result)
+    orchestrator._update_session_state("evaluate_result", result.output)
+
+    assert result.next_state == State.PROFILE_READY
+    assert result.output["performance_rollback"]["rollback_performed"] is True
+    assert "return 1" in Path(orchestrator.project_path).read_text(encoding="utf-8")
+    assert orchestrator._rejected_targets() == ["placeholder"]
+    assert orchestrator.session_state.checkpoint_metadata.get("last_verified_patch") is None
+
+
+def test_source_context_refreshes_after_workspace_changes(tmp_path):
+    project_path = _project_file(tmp_path)
+    orchestrator = Orchestrator(
+        project_path=str(project_path),
+        provider=MockProvider(),
+        prompt_pack=_prompt_pack(),
+        guardrails_config=GuardrailsConfig(max_llm_calls=1, max_tool_calls=1),
+        interactive=False,
+        output_dir=str(tmp_path / "results"),
+    )
+    orchestrator.session_state.current_target = "placeholder"
+    before = orchestrator._source_context_for(State.ANALYSIS_READY)
+
+    Path(orchestrator.project_path).write_text("def placeholder():\n    return 2\n", encoding="utf-8")
+    after = orchestrator._source_context_for(State.ANALYSIS_READY)
+
+    assert "return 1" in before
+    assert "return 2" in after
