@@ -121,6 +121,7 @@ class Evaluator:
             "fallback_applied": _fallback_applied(tool_outputs),
             "fallback_count": _fallback_count(tool_outputs),
             "patch_apply_failures": _patch_apply_failures(tool_outputs),
+            "verification_failures": _verification_failures(tool_outputs),
             "verified_patch_applied": _verified_patch_applied(tool_outputs),
             "patch_application_count": _patch_application_count(tool_outputs),
         }
@@ -218,6 +219,15 @@ def _patch_apply_failures(tool_outputs: dict[str, Any]) -> int:
         1
         for verification in _apply_verifications(tool_outputs)
         if verification.get("short_error_summary") and verification.get("patch_applied") is not True
+        and verification.get("verification_failed") is not True
+    )
+
+
+def _verification_failures(tool_outputs: dict[str, Any]) -> int:
+    return sum(
+        1
+        for verification in _apply_verifications(tool_outputs)
+        if verification.get("verification_failed") is True
     )
 
 

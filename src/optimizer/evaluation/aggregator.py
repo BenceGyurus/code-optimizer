@@ -34,6 +34,7 @@ class ResultAggregator:
             "fallback_runs": sum(1 for row in rows if row.get("fallback_applied") is True),
             "fallback_count": summarize(_numeric_values(rows, "fallback_count")),
             "patch_apply_failures": summarize(_numeric_values(rows, "patch_apply_failures")),
+            "verification_failures": summarize(_numeric_values(rows, "verification_failures")),
             "patch_application_count": summarize(_numeric_values(rows, "patch_application_count")),
             "baseline_runtime": summarize(_numeric_values(rows, "baseline_runtime")),
             "optimized_runtime": summarize(_numeric_values(rows, "optimized_runtime")),

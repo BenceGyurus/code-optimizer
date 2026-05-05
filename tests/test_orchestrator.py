@@ -76,6 +76,38 @@ def test_repeated_inspect_in_baseline_ready_falls_back_to_profile(tmp_path):
     assert orchestrator.session_state.latest_result["profiler"]["source"] == "custom"
 
 
+def test_baseline_ready_forces_profile_before_analysis_when_profile_command_exists(tmp_path):
+    project_path = _project_file(tmp_path)
+    provider = MockProvider(
+        responses=[
+            json.dumps({"action": "run_baseline", "args": {}, "reason": "baseline"}),
+            json.dumps(
+                {
+                    "action": "analyze_candidate",
+                    "args": {"target": "placeholder", "strategy": "guess", "rationale": "skip profile"},
+                    "reason": "bad shortcut",
+                }
+            ),
+        ]
+    )
+    orchestrator = Orchestrator(
+        project_path=str(project_path),
+        provider=provider,
+        prompt_pack=_prompt_pack(),
+        guardrails_config=GuardrailsConfig(max_llm_calls=5, max_tool_calls=5),
+        interactive=False,
+        profile_command='python -c "print(1)"',
+        output_dir=str(tmp_path / "results"),
+    )
+
+    orchestrator._step()
+    assert orchestrator.state_machine.current_state == State.BASELINE_READY
+
+    orchestrator._step()
+    assert orchestrator.state_machine.current_state == State.PROFILE_READY
+    assert orchestrator.session_state.checkpoint_metadata["baseline_profile"]["profiler"]["source"] == "custom"
+
+
 def test_parse_decision_repairs_malformed_apply_and_verify_response(tmp_path):
     project_path = _project_file(tmp_path)
     orchestrator = Orchestrator(
@@ -364,3 +396,57 @@ def test_orchestrator_marks_regressed_target_as_rejected(tmp_path):
 
     assert orchestrator._rejected_targets() == ["matrix_multiply"]
     assert "matrix_multiply" in orchestrator._action_guidance(State.ANALYSIS_READY)
+
+
+def test_failed_patch_verification_rolls_back_and_returns_to_candidate_selection(tmp_path):
+    project_path = _project_file(tmp_path)
+    patch = """*** Begin Patch
+*** Update File: sample_project.py
+@@
+ def placeholder():
+-    return 1
++    return 2
+*** End Patch
+"""
+    provider = MockProvider(
+        responses=[
+            json.dumps({"action": "run_baseline", "args": {}, "reason": "baseline"}),
+            json.dumps(
+                {
+                    "action": "analyze_candidate",
+                    "args": {"target": "placeholder", "strategy": "change return", "rationale": "test candidate"},
+                    "reason": "choose target",
+                }
+            ),
+            json.dumps(
+                {
+                    "action": "propose_change",
+                    "args": {
+                        "target": "placeholder",
+                        "strategy": "change return",
+                        "patch": patch,
+                        "rationale": "test patch",
+                    },
+                    "reason": "propose patch",
+                }
+            ),
+            json.dumps({"action": "apply_and_verify", "args": {}, "reason": "apply"}),
+            json.dumps({"action": "apply_and_verify", "args": {}, "reason": "verify"}),
+        ]
+    )
+    orchestrator = Orchestrator(
+        project_path=str(project_path),
+        provider=provider,
+        prompt_pack=_prompt_pack(),
+        guardrails_config=GuardrailsConfig(max_llm_calls=8, max_tool_calls=8),
+        interactive=False,
+        test_command='python -B -c "import sample_project; raise SystemExit(0 if sample_project.placeholder()==1 else 1)"',
+        output_dir=str(tmp_path / "results"),
+    )
+
+    for _ in range(5):
+        orchestrator._step()
+
+    assert orchestrator.state_machine.current_state == State.PROFILE_READY
+    assert orchestrator.pending_patch == ""
+    assert orchestrator._rejected_targets() == ["placeholder"]

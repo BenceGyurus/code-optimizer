@@ -176,6 +176,12 @@ class Orchestrator:
                 self._emit("NORMALIZE", f"{action_name} -> {normalized_action}", style="yellow")
                 action_name = normalized_action
 
+            if self._should_force_profile_before_analysis(current_state, allowed_tools, action_name):
+                logger.warning("Forcing profile_execution before analyze_candidate because a profile command is configured.")
+                self._emit("NORMALIZE", f"{action_name} -> profile_execution", style="yellow")
+                action_name = "profile_execution"
+                args = {}
+
             if action_name == "inspect_codebase":
                 signature = f"decision:{current_state.name}:{action_name}"
                 if not self.guardrails.record_repetition(signature):
@@ -311,6 +317,10 @@ class Orchestrator:
             if verification.get("noop_patch"):
                 detail = "; ".join(verification.get("short_error_summary") or ["empty patch"])
                 self._emit("CHANGE", f"no file changes: {self._short(detail, 220)}", style="yellow")
+            elif verification.get("verification_failed"):
+                detail = "; ".join(verification.get("short_error_summary") or ["verification failed"])
+                rollback = "rollback ok" if verification.get("rollback_performed") else "rollback failed"
+                self._emit("VERIFY", f"failed, {rollback}: {self._short(detail, 220)}", style="yellow")
             elif verification.get("patch_applied"):
                 self._emit("CHANGE", "patch applied", style="green")
             elif verification.get("short_error_summary"):
@@ -375,7 +385,7 @@ class Orchestrator:
                     self.pending_patch = ""
                 elif verification.get("short_error_summary") or verification.get("noop_patch") or verification.get("fallback_applied"):
                     self._record_rejected_target(self.session_state.current_target, "patch failed or fallback was needed")
-                    if not verification.get("patch_applied") or verification.get("noop_patch"):
+                    if not verification.get("patch_applied") or verification.get("noop_patch") or verification.get("rollback_performed"):
                         self.pending_patch = ""
             if action_name == "run_baseline":
                 self.session_state.checkpoint_metadata["baseline_result"] = output
@@ -588,7 +598,27 @@ class Orchestrator:
             return guidance
         if current_state == State.PATCH_PROPOSED:
             return "If a patch exists, choose apply_and_verify. If no patch exists, choose rollback_to_checkpoint."
+        if current_state == State.PROFILE_READY:
+            rejected = self._rejected_targets()
+            guidance = "Choose analyze_candidate using the latest measurements and source outline."
+            if rejected:
+                guidance += f" Avoid these previously failed or regressed targets in this session: {', '.join(rejected)}."
+            return guidance
         return ""
+
+    def _should_force_profile_before_analysis(
+        self,
+        current_state: State,
+        allowed_tools: list[str],
+        action_name: str,
+    ) -> bool:
+        return (
+            current_state == State.BASELINE_READY
+            and action_name == "analyze_candidate"
+            and "profile_execution" in allowed_tools
+            and bool(self.command_args.get("profile_cmd"))
+            and "baseline_profile" not in self.session_state.checkpoint_metadata
+        )
 
     def _guardrail_limits_text(self) -> str:
         config = self.guardrails.config

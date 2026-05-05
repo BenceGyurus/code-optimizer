@@ -49,6 +49,7 @@ class ApplyAndVerifyTool(Tool):
             "patch_applied": False,
             "noop_patch": False,
             "fallback_allowed": bool(allow_deterministic_fallback),
+            "verification_failed": False,
         }
         patch_cwd = patch_cwd or self._patch_cwd(project_path, patch)
 
@@ -105,7 +106,7 @@ class ApplyAndVerifyTool(Tool):
             if build.returncode != 0:
                 verification["short_error_summary"].append((build.stderr or build.stdout).strip()[:1000])
                 self._rollback_patch(project_path, patch, verification, patch_cwd)
-                return ToolResult(success=False, output={"verification_result": verification}, metadata=verification)
+                return self._verification_failed_result(verification)
 
         if test_cmd:
             test = run_command(test_cmd, cwd=project_path)
@@ -113,9 +114,21 @@ class ApplyAndVerifyTool(Tool):
             if test.returncode != 0:
                 verification["short_error_summary"].append((test.stderr or test.stdout).strip()[:1000])
                 self._rollback_patch(project_path, patch, verification, patch_cwd)
-                return ToolResult(success=False, output={"verification_result": verification}, metadata=verification)
+                return self._verification_failed_result(verification)
 
         return ToolResult(success=True, output={"verification_result": verification}, next_state=State.VERIFIED, metadata=verification)
+
+    def _verification_failed_result(self, verification: dict) -> ToolResult:
+        verification["verification_failed"] = True
+        return ToolResult(
+            success=True,
+            output={
+                "message": "Verification failed; patch was rolled back and the target should be rejected.",
+                "verification_result": verification,
+            },
+            next_state=State.PROFILE_READY,
+            metadata=verification,
+        )
 
     def _rollback_patch(self, project_path: str, patch: str, verification: dict, patch_cwd: Optional[str] = None) -> None:
         if not patch:

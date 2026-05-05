@@ -163,6 +163,7 @@ def test_collect_run_details_reports_fallback_and_patch_failures(tmp_path: Path)
     assert details["fallback_applied"] is True
     assert details["fallback_count"] == 1
     assert details["patch_apply_failures"] == 1
+    assert details["verification_failures"] == 0
     assert details["verified_patch_applied"] is False
     assert details["patch_application_count"] == 0
 
@@ -210,6 +211,51 @@ def test_collect_run_details_detects_verified_model_patch(tmp_path: Path) -> Non
 
     assert details["verified_patch_applied"] is True
     assert details["patch_application_count"] == 1
+
+
+def test_collect_run_details_separates_verification_failures_from_apply_failures(tmp_path: Path) -> None:
+    session_dir = tmp_path / "session"
+    session_dir.mkdir()
+    _write_yaml(
+        session_dir / "final_summary.yaml",
+        {
+            "tool_calls": 4,
+            "llm_calls": 3,
+            "iterations": 1,
+            "latest_result": {},
+        },
+    )
+    _write_artifact(
+        session_dir / "tool_output_apply_and_verify_100.json",
+        "apply_and_verify",
+        {
+            "verification_result": {
+                "patch_applied": True,
+                "short_error_summary": [],
+            }
+        },
+        timestamp=100.0,
+    )
+    _write_artifact(
+        session_dir / "tool_output_apply_and_verify_200.json",
+        "apply_and_verify",
+        {
+            "verification_result": {
+                "patch_applied": False,
+                "verification_failed": True,
+                "rollback_performed": True,
+                "test_success": False,
+                "short_error_summary": ["tests failed"],
+            }
+        },
+        timestamp=200.0,
+    )
+
+    details = Evaluator()._collect_run_details(str(session_dir))
+
+    assert details["patch_apply_failures"] == 0
+    assert details["verification_failures"] == 1
+    assert details["verified_patch_applied"] is False
 
 
 def _write_artifact(path: Path, tool_name: str, content: dict, timestamp: float) -> None:

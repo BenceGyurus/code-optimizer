@@ -83,7 +83,9 @@ def test_apply_and_verify_rolls_back_begin_patch_on_failed_verification(tmp_path
     )
 
     verification = result.output["verification_result"]
-    assert result.success is False
+    assert result.success is True
+    assert result.next_state == State.PROFILE_READY
+    assert verification["verification_failed"] is True
     assert verification["rollback_performed"] is True
     assert project_path.read_text(encoding="utf-8") == original
 

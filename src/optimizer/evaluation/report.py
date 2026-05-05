@@ -15,6 +15,7 @@ def write_report(eval_dir: str, aggregate: Dict[str, object]) -> str:
         handle.write(f"- Runs using deterministic fallback: {aggregate.get('fallback_runs')}\n")
         handle.write(f"- Average deterministic fallbacks per run: {_fmt_summary(aggregate.get('fallback_count'))}\n")
         handle.write(f"- Average patch apply failures per run: {_fmt_summary(aggregate.get('patch_apply_failures'))}\n")
+        handle.write(f"- Average verification failures per run: {_fmt_summary(aggregate.get('verification_failures'))}\n")
         handle.write(f"- Average model patch applications per run: {_fmt_summary(aggregate.get('patch_application_count'))}\n")
         handle.write(f"- Average baseline runtime: {_fmt_summary(aggregate.get('baseline_runtime'))}\n")
         handle.write(f"- Average optimized runtime: {_fmt_summary(aggregate.get('optimized_runtime'))}\n")
@@ -36,8 +37,8 @@ def write_report(eval_dir: str, aggregate: Dict[str, object]) -> str:
         rows = sorted(aggregate.get("rows") or [], key=_sort_key, reverse=True)
         if rows:
             handle.write("\n## Per-Run Summary\n\n")
-            handle.write("| provider | model | prompt_pack | rep | state | outcome | baseline_s | optimized_s | speedup | patch_verified | fallback | patch_failures | cache_hit_before | cache_hit_after | llm_calls | tool_calls | iterations |\n")
-            handle.write("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
+            handle.write("| provider | model | prompt_pack | rep | state | outcome | baseline_s | optimized_s | speedup | patch_verified | fallback | patch_failures | verification_failures | cache_hit_before | cache_hit_after | llm_calls | tool_calls | iterations |\n")
+            handle.write("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
             for row in rows:
                 handle.write(
                     "| "
@@ -53,6 +54,7 @@ def write_report(eval_dir: str, aggregate: Dict[str, object]) -> str:
                     f"{_fmt_bool(row.get('verified_patch_applied'))} | "
                     f"{_fmt_bool(row.get('fallback_applied'))} | "
                     f"{_fmt_value(row.get('patch_apply_failures'))} | "
+                    f"{_fmt_value(row.get('verification_failures'))} | "
                     f"{_fmt_nested_value(row.get('hardware_before'), 'cache_hit_rate')} | "
                     f"{_fmt_nested_value(row.get('hardware_after'), 'cache_hit_rate')} | "
                     f"{_fmt_value(row.get('llm_calls'))} | "
