@@ -59,10 +59,35 @@ if ! "${PYTHON_BIN}" -c "import matplotlib" >/dev/null 2>&1; then
   exit 1
 fi
 
-if ! perf stat -e cache-references,cache-misses,branches,branch-misses,L1-dcache-loads,L1-dcache-load-misses,LLC-loads,LLC-load-misses -- true >/dev/null 2>&1; then
+PERF_EVENT_CANDIDATES=(
+  cache-references
+  cache-misses
+  branches
+  branch-misses
+  L1-dcache-loads
+  L1-dcache-load-misses
+  LLC-loads
+  LLC-load-misses
+)
+SUPPORTED_PERF_EVENTS=()
+UNSUPPORTED_PERF_EVENTS=()
+for event in "${PERF_EVENT_CANDIDATES[@]}"; do
+  if perf stat -e "${event}" -- true >/dev/null 2>&1; then
+    SUPPORTED_PERF_EVENTS+=("${event}")
+  else
+    UNSUPPORTED_PERF_EVENTS+=("${event}")
+  fi
+done
+
+if [[ ${#SUPPORTED_PERF_EVENTS[@]} -eq 0 ]]; then
   echo "perf hardware counters are not available on this Debian machine." >&2
   echo "Typical fix: lower kernel.perf_event_paranoid and rerun." >&2
   exit 1
+fi
+PERF_EVENTS="$(IFS=,; echo "${SUPPORTED_PERF_EVENTS[*]}")"
+export OPTIMIZER_UNSUPPORTED_PERF_EVENTS="$(IFS=,; echo "${UNSUPPORTED_PERF_EVENTS[*]}")"
+if [[ ${#UNSUPPORTED_PERF_EVENTS[@]} -gt 0 ]]; then
+  echo "perf warning: unsupported counters skipped: ${OPTIMIZER_UNSUPPORTED_PERF_EVENTS}" >&2
 fi
 
 if [[ "${EFFECTIVE_PROVIDER_MODELS}" == *"ollama="* ]]; then
@@ -81,7 +106,7 @@ fi
   --hardware-repetitions "${RUN_REPETITIONS}" \
   --test-command "${TEST_COMMAND}" \
   --benchmark-command "\"${PYTHON_BIN}\" ${PROJECT_FILE} --skip-tests --repetitions 1" \
-  --profile-command "perf stat -e cache-references,cache-misses,branches,branch-misses,L1-dcache-loads,L1-dcache-load-misses,LLC-loads,LLC-load-misses -- \"${PYTHON_BIN}\" ${PROJECT_FILE} --skip-tests --repetitions 1" \
+  --profile-command "perf stat -e ${PERF_EVENTS} -- \"${PYTHON_BIN}\" ${PROJECT_FILE} --skip-tests --repetitions 1" \
   --output-dir "${OUTPUT_DIR}" \
   --max-llm-calls 16 \
   --max-tool-calls 32 \

@@ -37,8 +37,12 @@ class ResultAggregator:
             "verification_failures": summarize(_numeric_values(rows, "verification_failures")),
             "performance_rollbacks": summarize(_numeric_values(rows, "performance_rollbacks")),
             "patch_application_count": summarize(_numeric_values(rows, "patch_application_count")),
+            "optimization_attempts": summarize(_numeric_values(rows, "optimization_attempts")),
             "baseline_runtime": summarize(_numeric_values(rows, "baseline_runtime")),
             "optimized_runtime": summarize(_numeric_values(rows, "optimized_runtime")),
+            "final_runtime": summarize(_numeric_values(rows, "final_runtime")),
+            "accepted_optimized_runtime": summarize(_numeric_values(rows, "accepted_optimized_runtime")),
+            "post_rollback_runtime": summarize(_numeric_values(rows, "post_rollback_runtime")),
             "relative_speedup": summarize(_numeric_values(rows, "relative_speedup")),
             "llm_calls": summarize(_numeric_values(rows, "llm_calls")),
             "llm_recoveries": summarize(_numeric_values(rows, "llm_recoveries")),
@@ -58,6 +62,7 @@ class ResultAggregator:
             "llc_miss_after": summarize(_nested_numeric_values(rows, "hardware_after", "llc_load_miss_rate")),
             "branch_miss_before": summarize(_nested_numeric_values(rows, "hardware_before", "branch_miss_rate")),
             "branch_miss_after": summarize(_nested_numeric_values(rows, "hardware_after", "branch_miss_rate")),
+            "unsupported_hardware_counters": _unsupported_hardware_counters(rows),
             "tool_usage_totals": tool_usage_totals,
             "rows": rows,
         }
@@ -82,6 +87,16 @@ def _nested_numeric_values(rows: List[Dict[str, object]], container_key: str, va
         if isinstance(value, (int, float)):
             values.append(float(value))
     return values
+
+
+def _unsupported_hardware_counters(rows: List[Dict[str, object]]) -> List[str]:
+    counters: set[str] = set()
+    for row in rows:
+        values = row.get("unsupported_hardware_counters")
+        if not isinstance(values, list):
+            continue
+        counters.update(str(value) for value in values if value)
+    return sorted(counters)
 
 
 def _is_successful_run(row: Dict[str, object]) -> bool:

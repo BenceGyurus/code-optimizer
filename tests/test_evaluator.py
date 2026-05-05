@@ -49,6 +49,8 @@ def test_collect_run_details_uses_profile_execution_and_terminal_remeasure(tmp_p
 
     assert details["baseline_runtime"] == 12.0
     assert details["optimized_runtime"] == 9.0
+    assert details["final_runtime"] == 9.0
+    assert details["accepted_optimized_runtime"] is None
     assert details["relative_speedup"] == 1.3333333333
     assert details["hardware_before"] == {"cache_miss_rate": 0.25, "branch_miss_rate": 0.11}
     assert details["hardware_after"] == {"cache_miss_rate": 0.18, "branch_miss_rate": 0.07}
@@ -302,6 +304,8 @@ def test_collect_run_details_treats_performance_rollback_as_no_verified_patch(tm
         "performance_rollback",
         {
             "rollback_performed": True,
+            "target": "slow_path",
+            "reason": "runtime regression",
             "relative_speedup": 0.95,
             "short_error_summary": [],
         },
@@ -313,6 +317,90 @@ def test_collect_run_details_treats_performance_rollback_as_no_verified_patch(tm
     assert details["performance_rollbacks"] == 1
     assert details["verified_patch_applied"] is False
     assert details["patch_application_count"] == 1
+    assert details["optimization_attempts"] == 1
+    assert details["post_rollback_runtime"] is None
+    assert details["rejected_target_details"] == [
+        {"target": "slow_path", "reason": "runtime regression", "relative_speedup": 0.95}
+    ]
+
+
+def test_collect_run_details_reports_final_runtime_after_rollback(tmp_path: Path) -> None:
+    session_dir = tmp_path / "session"
+    session_dir.mkdir()
+    _write_yaml(
+        session_dir / "final_summary.yaml",
+        {
+            "tool_calls": 4,
+            "llm_calls": 3,
+            "iterations": 1,
+            "rejected_target_details": [{"target": "hot_loop", "reason": "runtime regression speedup=0.950000"}],
+            "latest_result": {
+                "baseline_runtime": 10.0,
+                "optimized_runtime": 10.5,
+                "relative_speedup": 0.95238,
+            },
+        },
+    )
+    _write_artifact(
+        session_dir / "tool_output_apply_and_verify_100.json",
+        "apply_and_verify",
+        {
+            "verification_result": {
+                "patch_applied": True,
+                "fallback_applied": False,
+                "noop_patch": False,
+                "short_error_summary": [],
+            }
+        },
+        timestamp=100.0,
+    )
+    _write_artifact(
+        session_dir / "tool_output_performance_rollback_200.json",
+        "performance_rollback",
+        {
+            "rollback_performed": True,
+            "target": "hot_loop",
+            "reason": "runtime regression",
+            "relative_speedup": 0.95,
+            "short_error_summary": [],
+        },
+        timestamp=200.0,
+    )
+
+    details = Evaluator()._collect_run_details(str(session_dir))
+
+    assert details["optimized_runtime"] == 10.5
+    assert details["final_runtime"] == 10.5
+    assert details["accepted_optimized_runtime"] is None
+    assert details["post_rollback_runtime"] == 10.5
+    assert details["rejected_targets"] == ["hot_loop"]
+    assert details["rejected_target_details"] == [
+        {"target": "hot_loop", "reason": "runtime regression", "relative_speedup": 0.95}
+    ]
+
+
+def test_collect_run_details_reports_unsupported_hardware_counters(tmp_path: Path) -> None:
+    session_dir = tmp_path / "session"
+    session_dir.mkdir()
+    _write_yaml(session_dir / "final_summary.yaml", {"latest_result": {}})
+    _write_artifact(
+        session_dir / "tool_output_profile_execution_100.json",
+        "profile_execution",
+        {
+            "profiler": {"supported": True, "unsupported_counters": ["llc_loads"]},
+            "runs": [
+                {
+                    "stdout": "",
+                    "stderr": "   <not supported>      LLC-load-misses\n",
+                }
+            ],
+        },
+        timestamp=100.0,
+    )
+
+    details = Evaluator()._collect_run_details(str(session_dir))
+
+    assert details["unsupported_hardware_counters"] == ["llc_load_misses", "llc_loads"]
 
 
 def _write_artifact(path: Path, tool_name: str, content: dict, timestamp: float) -> None:

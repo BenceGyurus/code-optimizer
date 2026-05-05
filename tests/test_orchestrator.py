@@ -8,6 +8,7 @@ from optimizer.orchestrator.guardrails import GuardrailsConfig
 from optimizer.orchestrator.orchestrator import Orchestrator
 from optimizer.orchestrator.state_machine import State
 from optimizer.providers.mock import MockProvider
+from optimizer.providers.base import LLMRequest, LLMResponse
 from optimizer.tools.analyze_candidate import AnalyzeCandidateTool
 from optimizer.tools.apply_and_verify import ApplyAndVerifyTool
 from optimizer.tools.base import ToolResult
@@ -21,6 +22,16 @@ def _project_file(tmp_path):
     path = tmp_path / "sample_project.py"
     path.write_text("def placeholder():\n    return 1\n", encoding="utf-8")
     return path
+
+
+class CapturePromptProvider(MockProvider):
+    def __init__(self, responses=None):
+        super().__init__(responses=responses)
+        self.last_prompt = ""
+
+    def send_prompt(self, request: LLMRequest) -> LLMResponse:
+        self.last_prompt = request.prompt
+        return super().send_prompt(request)
 
 
 def test_repeated_inspect_in_init_falls_back_to_baseline(tmp_path):
@@ -498,8 +509,12 @@ def test_regressed_verified_patch_is_rolled_back_before_next_candidate(tmp_path)
 
     assert result.next_state == State.PROFILE_READY
     assert result.output["performance_rollback"]["rollback_performed"] is True
+    assert result.output["performance_rollback"]["target"] == "placeholder"
     assert "return 1" in Path(orchestrator.project_path).read_text(encoding="utf-8")
     assert orchestrator._rejected_targets() == ["placeholder"]
+    assert orchestrator._rejected_target_details() == [
+        {"target": "placeholder", "reason": "runtime regression speedup=0.900000"}
+    ]
     assert orchestrator.session_state.checkpoint_metadata.get("last_verified_patch") is None
 
 
@@ -521,3 +536,32 @@ def test_source_context_refreshes_after_workspace_changes(tmp_path):
 
     assert "return 1" in before
     assert "return 2" in after
+
+
+def test_action_guidance_is_appended_even_when_master_omits_placeholder(tmp_path):
+    project_path = _project_file(tmp_path)
+    provider = CapturePromptProvider(
+        responses=[
+            json.dumps(
+                {
+                    "action": "propose_change",
+                    "args": {"target": "placeholder", "strategy": "none", "patch": "", "rationale": "no safe patch"},
+                    "reason": "capture prompt",
+                }
+            )
+        ]
+    )
+    orchestrator = Orchestrator(
+        project_path=str(project_path),
+        provider=provider,
+        prompt_pack=_prompt_pack(),
+        guardrails_config=GuardrailsConfig(max_llm_calls=1, max_tool_calls=1),
+        interactive=False,
+        output_dir=str(tmp_path / "results"),
+    )
+    orchestrator.state_machine._current_state = State.ANALYSIS_READY
+
+    orchestrator._step()
+
+    assert "# Action Guidance" in provider.last_prompt
+    assert "Avoid cosmetic micro-optimizations" in provider.last_prompt

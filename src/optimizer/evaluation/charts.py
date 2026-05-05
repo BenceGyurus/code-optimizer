@@ -87,7 +87,15 @@ def write_charts(charts_dir: str, aggregate: Dict[str, object]) -> None:
     )
     _metric_chart(plt, os.path.join(charts_dir, "llm_calls_per_run.png"), labels, rows, "llm_calls", "LLM Calls Per Run", "calls")
     _metric_chart(plt, os.path.join(charts_dir, "tool_calls_per_run.png"), labels, rows, "tool_calls", "Tool Calls Per Run", "calls")
-    _metric_chart(plt, os.path.join(charts_dir, "iterations_per_run.png"), labels, rows, "iterations", "Iterations Per Run", "iterations")
+    _metric_chart(
+        plt,
+        os.path.join(charts_dir, "optimization_attempts_per_run.png"),
+        labels,
+        rows,
+        "optimization_attempts",
+        "Optimization Attempts Per Run",
+        "attempts",
+    )
     _tool_usage_chart(plt, os.path.join(charts_dir, "tool_usage.png"), aggregate.get("tool_usage_totals") or {})
     _success_failure_chart(
         plt,
@@ -102,18 +110,18 @@ def write_charts(charts_dir: str, aggregate: Dict[str, object]) -> None:
 
 def _runtime_chart(plt, path: str, labels: Sequence[str], rows: Sequence[Dict[str, object]]) -> None:
     baseline = [_float_or_none(row.get("baseline_runtime")) for row in rows]
-    optimized = [_float_or_none(row.get("optimized_runtime")) for row in rows]
+    final = [_float_or_none(row.get("final_runtime") if row.get("final_runtime") is not None else row.get("optimized_runtime")) for row in rows]
     fig, ax = plt.subplots(figsize=(10, 5))
-    if not any(value is not None for value in baseline + optimized):
+    if not any(value is not None for value in baseline + final):
         _draw_no_data(ax, "No runtime data available.")
     else:
         positions = list(range(len(labels)))
         width = 0.38
         ax.bar([index - width / 2 for index in positions], _missing_as_nan(baseline), width=width, label="baseline", color="#64748b")
-        ax.bar([index + width / 2 for index in positions], _missing_as_nan(optimized), width=width, label="optimized", color="#2563eb")
+        ax.bar([index + width / 2 for index in positions], _missing_as_nan(final), width=width, label="final measured", color="#2563eb")
         ax.set_xticks(positions, labels, rotation=20, ha="right")
         ax.set_ylabel("seconds")
-        ax.set_title("Baseline vs Optimized Runtime")
+        ax.set_title("Baseline vs Final Runtime")
         ax.legend()
         ax.grid(axis="y", alpha=0.25)
     fig.tight_layout()
@@ -132,7 +140,7 @@ def _speedup_chart(plt, path: str, labels: Sequence[str], rows: Sequence[Dict[st
         ax.axhline(1.0, color="#111827", linestyle="--", linewidth=1)
         ax.set_xticks(positions, labels, rotation=20, ha="right")
         ax.set_ylabel("speedup")
-        ax.set_title("Relative Speedup")
+        ax.set_title("Relative Final Speedup")
         ax.grid(axis="y", alpha=0.25)
     fig.tight_layout()
     fig.savefig(path, dpi=160)
@@ -144,7 +152,7 @@ def _before_after_chart(plt, path: str, labels: Sequence[str], rows: Sequence[Di
     after = [_nested_float(row, "hardware_after", key) for row in rows]
     fig, ax = plt.subplots(figsize=(10, 5))
     if not any(value is not None for value in before + after):
-        _draw_no_data(ax, f"No {ylabel} data available. Supply --profile-command.")
+        _draw_no_data(ax, _no_data_message(rows, key, ylabel))
     else:
         positions = list(range(len(labels)))
         width = 0.38
@@ -253,3 +261,16 @@ def _nested_float(row: Dict[str, object], container_key: str, value_key: str) ->
     if not isinstance(container, dict):
         return None
     return _float_or_none(container.get(value_key))
+
+
+def _no_data_message(rows: Sequence[Dict[str, object]], key: str, ylabel: str) -> str:
+    if key.startswith("llc_") and any(_has_unsupported_llc(row) for row in rows):
+        return "LLC counters unsupported on this machine."
+    return f"No {ylabel} data available. Supply --profile-command."
+
+
+def _has_unsupported_llc(row: Dict[str, object]) -> bool:
+    counters = row.get("unsupported_hardware_counters")
+    if not isinstance(counters, list):
+        return False
+    return any(str(counter) in {"llc_loads", "llc_load_misses"} for counter in counters)

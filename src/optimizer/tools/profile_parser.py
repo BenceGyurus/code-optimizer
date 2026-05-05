@@ -40,6 +40,25 @@ def parse_hardware_counters(stdout: str = "", stderr: str = "") -> Dict[str, flo
     return counters
 
 
+def parse_unsupported_counters(stdout: str = "", stderr: str = "") -> list[str]:
+    """Return normalized perf counters that the current machine could not count."""
+    unsupported: set[str] = set()
+    for line in f"{stdout}\n{stderr}".splitlines():
+        parsed = _parse_unsupported_counter_line(line)
+        if parsed is not None:
+            unsupported.add(parsed)
+    return sorted(unsupported)
+
+
+def normalize_counter_names(names: Iterable[str]) -> list[str]:
+    normalized: set[str] = set()
+    for name in names:
+        key = _normalize_counter_name(str(name).strip())
+        if key:
+            normalized.add(key)
+    return sorted(normalized)
+
+
 def summarize_counter_runs(runs: Iterable[Dict[str, float]]) -> Dict[str, dict]:
     grouped: Dict[str, list[float]] = {}
     for run in runs:
@@ -102,6 +121,21 @@ def _parse_counter_line(line: str) -> Optional[tuple[str, float]]:
     if value is None:
         return None
     return match.group(2), value
+
+
+def _parse_unsupported_counter_line(line: str) -> Optional[str]:
+    if "<not supported>" not in line and "<not counted>" not in line:
+        return None
+    match = re.match(r"^\s*<[^>]+>\s+([A-Za-z0-9_.:-]+)\b", line)
+    if not match:
+        return None
+    return _normalize_counter_name(match.group(1))
+
+
+def _normalize_counter_name(name: str) -> Optional[str]:
+    if not name:
+        return None
+    return COUNTER_ALIASES.get(name.lower(), name.lower().replace("-", "_"))
 
 
 def _parse_number(value: str) -> Optional[float]:

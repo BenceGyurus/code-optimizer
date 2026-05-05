@@ -132,7 +132,11 @@ class Orchestrator:
         if not master_prompt or not decision_prompt:
             raise ValueError(f"Prompt pack {self.prompt_pack.name} is missing master or decision prompt.")
         
-        full_prompt = f"{self.context_builder.render_prompt(master_prompt, context_vars)}\n\n{self.context_builder.render_prompt(decision_prompt, context_vars)}"
+        rendered_master = self.context_builder.render_prompt(master_prompt, context_vars)
+        rendered_decision = self.context_builder.render_prompt(decision_prompt, context_vars)
+        guidance = str(context_vars.get("action_guidance") or "").strip()
+        guidance_block = f"\n\n# Action Guidance\n{guidance}" if guidance else ""
+        full_prompt = f"{rendered_master}{guidance_block}\n\n{rendered_decision}"
         
         response = None
         try:
@@ -443,6 +447,7 @@ class Orchestrator:
             "llm_calls": self.guardrails.llm_calls_count,
             "iterations": self.guardrails.iterations_count,
             "rejected_targets": self._rejected_targets(),
+            "rejected_target_details": self._rejected_target_details(),
             "llm_recoveries": self.session_state.checkpoint_metadata.get("llm_recoveries", 0),
             "latest_result": latest_result,
             "best_result": self.session_state.best_result,
@@ -615,6 +620,10 @@ class Orchestrator:
                 "Use the source context. Prefer the largest nested loops, repeated rescans, dense numeric kernels, "
                 "branch-heavy dispatch, or allocation-heavy hot paths. Avoid final aggregation, checksum, summary, "
                 "reporting, validation, data-generation, or main/run functions unless profiling clearly proves they dominate runtime. "
+                "Avoid cosmetic micro-optimizations that only cache local variables or rewrite comprehensions; prefer structural changes "
+                "that reduce algorithmic work, allocations, repeated scans, branches, or memory-stride problems. "
+                "For dense row/column kernels, prefer changing the access pattern, such as precomputing a transposed reusable view, "
+                "over a patch that merely renames locals. "
                 "Prefer a structured patch that starts with "
                 "*** Begin Patch because the runner can apply that format more reliably. "
                 "Patch format: first line *** Begin Patch; then *** Update File: <actual relative file path>; "
@@ -664,7 +673,8 @@ class Orchestrator:
         speedup = result.output.get("relative_speedup")
         if not isinstance(speedup, (int, float)) or speedup > 1.0:
             return
-        rollback = self._rollback_last_verified_patch("runtime regression", speedup)
+        target = self.session_state.current_target
+        rollback = self._rollback_last_verified_patch("runtime regression", speedup, target=target)
         if rollback:
             result.output["performance_rollback"] = rollback
             result.metadata = dict(result.metadata or {})
@@ -672,10 +682,11 @@ class Orchestrator:
             if rollback.get("rollback_performed"):
                 result.next_state = State.PROFILE_READY
 
-    def _rollback_last_verified_patch(self, reason: str, speedup: float) -> dict[str, Any]:
+    def _rollback_last_verified_patch(self, reason: str, speedup: float, target: Optional[str] = None) -> dict[str, Any]:
         patch = self.session_state.checkpoint_metadata.get("last_verified_patch")
         rollback = {
             "reason": reason,
+            "target": target,
             "relative_speedup": speedup,
             "rollback_performed": False,
             "short_error_summary": [],
@@ -958,6 +969,15 @@ class Orchestrator:
         if not isinstance(rejected, dict):
             return []
         return sorted(str(target) for target in rejected.keys())
+
+    def _rejected_target_details(self) -> list[dict[str, str]]:
+        rejected = self.session_state.checkpoint_metadata.get("rejected_targets")
+        if not isinstance(rejected, dict):
+            return []
+        return [
+            {"target": str(target), "reason": str(reason)}
+            for target, reason in sorted(rejected.items(), key=lambda item: str(item[0]))
+        ]
 
     def _preferred_targets(self) -> list[str]:
         preferred = list(preferred_targets_for_project(self.project_path))

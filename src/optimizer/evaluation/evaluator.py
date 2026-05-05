@@ -1,6 +1,7 @@
 import csv
 import json
 import os
+import re
 from dataclasses import asdict
 from typing import Any
 
@@ -12,6 +13,7 @@ from optimizer.llm.prompt_loader import PromptLoader
 from optimizer.orchestrator.guardrails import GuardrailsConfig
 from optimizer.orchestrator.orchestrator import Orchestrator
 from optimizer.providers.registry import registry as provider_registry
+from optimizer.tools.profile_parser import parse_unsupported_counters
 from optimizer.utils.yaml_io import load_yaml
 from optimizer.utils.yaml_io import dump_yaml
 
@@ -105,6 +107,17 @@ class Evaluator:
         optimized_profile = _first_available_output(tool_outputs, "remeasure", "terminal_remeasure")
         embedded_hardware_before = _read_embedded_hardware_summary(summary, "hardware_before")
         embedded_hardware_after = _read_embedded_hardware_summary(summary, "hardware_after")
+        latest_result = _read_nested(summary, "latest_result")
+        if not isinstance(latest_result, dict):
+            latest_result = {}
+        baseline_runtime = _to_float(latest_result.get("baseline_runtime"))
+        measured_runtime = _to_float(latest_result.get("optimized_runtime"))
+        relative_speedup = _to_float(latest_result.get("relative_speedup"))
+        performance_rollbacks = _performance_rollback_count(tool_outputs)
+        verified_patch_applied = _verified_patch_applied(tool_outputs)
+        patch_application_count = _patch_application_count(tool_outputs)
+        accepted_runtime = measured_runtime if verified_patch_applied and performance_rollbacks == 0 else None
+        post_rollback_runtime = measured_runtime if performance_rollbacks > 0 and not verified_patch_applied else None
 
         return {
             "session_dir": session_dir,
@@ -112,19 +125,26 @@ class Evaluator:
             "llm_calls": summary.get("llm_calls"),
             "llm_recoveries": summary.get("llm_recoveries"),
             "iterations": summary.get("iterations"),
-            "baseline_runtime": _to_float(_read_nested(summary, "latest_result", "baseline_runtime")),
-            "optimized_runtime": _to_float(_read_nested(summary, "latest_result", "optimized_runtime")),
-            "relative_speedup": _to_float(_read_nested(summary, "latest_result", "relative_speedup")),
+            "optimization_attempts": patch_application_count,
+            "baseline_runtime": baseline_runtime,
+            "optimized_runtime": measured_runtime,
+            "final_runtime": measured_runtime,
+            "accepted_optimized_runtime": accepted_runtime,
+            "post_rollback_runtime": post_rollback_runtime,
+            "relative_speedup": relative_speedup,
             "hardware_before": embedded_hardware_before or _read_hardware_summary(baseline_profile),
             "hardware_after": embedded_hardware_after or _read_hardware_summary(optimized_profile),
+            "unsupported_hardware_counters": _unsupported_hardware_counters(tool_outputs),
+            "rejected_targets": _read_rejected_targets(summary),
+            "rejected_target_details": _read_rejected_target_details(summary, tool_outputs),
             "tool_usage": tool_usage,
             "fallback_applied": _fallback_applied(tool_outputs),
             "fallback_count": _fallback_count(tool_outputs),
             "patch_apply_failures": _patch_apply_failures(tool_outputs),
             "verification_failures": _verification_failures(tool_outputs),
-            "performance_rollbacks": _performance_rollback_count(tool_outputs),
-            "verified_patch_applied": _verified_patch_applied(tool_outputs),
-            "patch_application_count": _patch_application_count(tool_outputs),
+            "performance_rollbacks": performance_rollbacks,
+            "verified_patch_applied": verified_patch_applied,
+            "patch_application_count": patch_application_count,
         }
 
     def _load_tool_outputs(self, session_dir: str) -> tuple[dict, dict]:
@@ -298,3 +318,85 @@ def _performance_rollback_count(tool_outputs: dict[str, Any]) -> int:
         for event_name, payload in _patch_lifecycle_events(tool_outputs)
         if event_name == "performance_rollback" and payload.get("rollback_performed") is True
     )
+
+
+def _unsupported_hardware_counters(tool_outputs: dict[str, Any]) -> list[str]:
+    unsupported: set[str] = set()
+    for payload in tool_outputs.get("__all__", []):
+        if not isinstance(payload, dict):
+            continue
+        content = payload.get("content")
+        if not isinstance(content, dict):
+            continue
+        profiler = content.get("profiler")
+        if isinstance(profiler, dict):
+            counters = profiler.get("unsupported_counters")
+            if isinstance(counters, list):
+                unsupported.update(str(counter) for counter in counters if counter)
+        for run_container in ("runs", "profile"):
+            runs = content.get(run_container)
+            if not isinstance(runs, list):
+                continue
+            for run in runs:
+                if not isinstance(run, dict):
+                    continue
+                unsupported.update(
+                    parse_unsupported_counters(
+                        str(run.get("stdout") or ""),
+                        str(run.get("stderr") or ""),
+                    )
+                )
+    return sorted(unsupported)
+
+
+def _read_rejected_targets(summary: dict) -> list[str]:
+    targets = summary.get("rejected_targets")
+    if isinstance(targets, list):
+        return sorted(str(target) for target in targets if target)
+    details = summary.get("rejected_target_details")
+    if isinstance(details, list):
+        return sorted(str(item.get("target")) for item in details if isinstance(item, dict) and item.get("target"))
+    return []
+
+
+def _read_rejected_target_details(summary: dict, tool_outputs: dict[str, Any]) -> list[dict[str, Any]]:
+    details: dict[str, dict[str, Any]] = {}
+    summary_details = summary.get("rejected_target_details")
+    if isinstance(summary_details, list):
+        for item in summary_details:
+            if not isinstance(item, dict) or not item.get("target"):
+                continue
+            target = str(item.get("target"))
+            reason = str(item.get("reason") or "")
+            details[target] = {
+                "target": target,
+                "reason": reason,
+                "relative_speedup": _speedup_from_reason(reason),
+            }
+
+    for event_name, payload in _patch_lifecycle_events(tool_outputs):
+        if event_name != "performance_rollback" or payload.get("rollback_performed") is not True:
+            continue
+        target = payload.get("target")
+        if not target:
+            continue
+        target_text = str(target)
+        details[target_text] = {
+            "target": target_text,
+            "reason": str(payload.get("reason") or "runtime regression"),
+            "relative_speedup": _to_float(payload.get("relative_speedup")),
+        }
+
+    for target in _read_rejected_targets(summary):
+        details.setdefault(target, {"target": target, "reason": "", "relative_speedup": None})
+    return [details[target] for target in sorted(details.keys())]
+
+
+def _speedup_from_reason(reason: str) -> float | None:
+    match = re.search(r"speedup=([0-9.]+)", reason)
+    if not match:
+        return None
+    try:
+        return float(match.group(1))
+    except ValueError:
+        return None
