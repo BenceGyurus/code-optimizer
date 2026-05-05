@@ -94,6 +94,7 @@ def write_charts(charts_dir: str, aggregate: Dict[str, object]) -> None:
         os.path.join(charts_dir, "success_failure.png"),
         int(aggregate.get("successful_runs") or 0),
         int(aggregate.get("failed_runs") or 0),
+        int(aggregate.get("incomplete_runs") or 0),
     )
 
 
@@ -190,17 +191,23 @@ def _metric_chart(plt, path: str, labels: Sequence[str], rows: Sequence[Dict[str
     plt.close(fig)
 
 
-def _success_failure_chart(plt, path: str, successful_runs: int, failed_runs: int) -> None:
+def _success_failure_chart(plt, path: str, successful_runs: int, failed_runs: int, incomplete_runs: int) -> None:
     fig, ax = plt.subplots(figsize=(6, 6))
-    total = successful_runs + failed_runs
+    total = successful_runs + failed_runs + incomplete_runs
     if total == 0:
         _draw_no_data(ax, "No run outcomes available.")
     else:
-        values = [successful_runs, failed_runs]
-        labels = ["success", "failure"]
-        colors = ["#16a34a", "#dc2626"]
+        slices = [
+            ("success", successful_runs, "#16a34a"),
+            ("failure", failed_runs, "#dc2626"),
+            ("incomplete", incomplete_runs, "#f59e0b"),
+        ]
+        slices = [item for item in slices if item[1] > 0]
+        labels = [item[0] for item in slices]
+        values = [item[1] for item in slices]
+        colors = [item[2] for item in slices]
         ax.pie(values, labels=labels, autopct="%1.0f%%", startangle=90, colors=colors)
-        ax.set_title("Success/Failure Split")
+        ax.set_title("Run Outcome Split")
     fig.tight_layout()
     fig.savefig(path, dpi=160)
     plt.close(fig)

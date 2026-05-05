@@ -23,19 +23,21 @@ class AnalyzeCandidateTool(Tool):
         rationale: str = "",
         project_path: str = ".",
         rejected_targets: object = None,
+        allow_deterministic_fallback: bool = False,
         **_: object,
     ) -> ToolResult:
         rejected = _normalize_rejected_targets(rejected_targets)
-        fallback_target = _fallback_target(project_path, target, rejected)
-        if fallback_target is not None:
-            target = fallback_target
+        if allow_deterministic_fallback:
+            fallback_target = _fallback_target(project_path, target, rejected)
+            if fallback_target is not None:
+                target = fallback_target
 
-        deterministic_change = build_change_for_target(project_path, target)
-        if deterministic_change is not None:
-            if _is_generic_strategy(strategy):
-                strategy = deterministic_change.strategy
-            if not rationale.strip():
-                rationale = deterministic_change.rationale
+            deterministic_change = build_change_for_target(project_path, target)
+            if deterministic_change is not None:
+                if _is_generic_strategy(strategy):
+                    strategy = deterministic_change.strategy
+                if not rationale.strip():
+                    rationale = deterministic_change.rationale
 
         output = {
             "target": target,

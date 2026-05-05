@@ -7,6 +7,7 @@ Match the examples' style and the real tool contracts:
 - `propose_change`: `target`, `strategy`, `patch`, `rationale`
 - `apply_and_verify`: usually `{}`
 - `evaluate_result`: usually `continue_optimization` and optional `target_speedup`
+- Do not copy example target names. Do not emit placeholder patches.
 
 # Example
 {"action":"evaluate_result","args":{"continue_optimization":false,"target_speedup":1.01},"reason":"Stop after acceptable measured gain."}

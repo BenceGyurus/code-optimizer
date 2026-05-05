@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from optimizer.llm.prompt_loader import PromptLoader
 from optimizer.orchestrator.guardrails import GuardrailsConfig
 from optimizer.orchestrator.orchestrator import Orchestrator
@@ -132,6 +134,7 @@ def test_parse_error_fallback_builds_deterministic_propose_change(tmp_path):
         prompt_pack=_prompt_pack(),
         guardrails_config=GuardrailsConfig(max_llm_calls=1, max_tool_calls=1),
         interactive=False,
+        allow_deterministic_fallback=True,
         output_dir=str(tmp_path / "results"),
     )
     orchestrator.session_state.current_target = "matrix_multiply"
@@ -148,7 +151,7 @@ def test_parse_error_fallback_builds_deterministic_propose_change(tmp_path):
     assert recovery_note == "Parse fallback selected propose_change."
 
 
-def test_parse_error_fallback_can_choose_default_target_without_filename_hint(tmp_path):
+def test_parse_error_fallback_does_not_invent_patch_by_default(tmp_path):
     source = (
         Path(__file__).resolve().parents[1] / "examples" / "heavy_compute.py"
     ).read_text(encoding="utf-8")
@@ -164,16 +167,12 @@ def test_parse_error_fallback_can_choose_default_target_without_filename_hint(tm
         output_dir=str(tmp_path / "results"),
     )
 
-    decision, recovery_note = orchestrator._parse_decision_response(
-        "{ not-json",
-        ["propose_change"],
-        State.ANALYSIS_READY,
-    )
-
-    assert decision["action"] == "propose_change"
-    assert decision["args"]["target"] == "matrix_multiply"
-    assert decision["args"]["patch"].startswith("diff --git ")
-    assert recovery_note == "Parse fallback selected propose_change."
+    with pytest.raises(ValueError):
+        orchestrator._parse_decision_response(
+            "{ not-json",
+            ["propose_change"],
+            State.ANALYSIS_READY,
+        )
 
 
 def test_parse_error_fallback_can_choose_deterministic_analysis_candidate(tmp_path):
@@ -189,6 +188,7 @@ def test_parse_error_fallback_can_choose_deterministic_analysis_candidate(tmp_pa
         prompt_pack=_prompt_pack(),
         guardrails_config=GuardrailsConfig(max_llm_calls=1, max_tool_calls=1),
         interactive=False,
+        allow_deterministic_fallback=True,
         output_dir=str(tmp_path / "results"),
     )
 
@@ -204,7 +204,7 @@ def test_parse_error_fallback_can_choose_deterministic_analysis_candidate(tmp_pa
     assert recovery_note == "Parse fallback selected analyze_candidate."
 
 
-def test_analyze_candidate_replaces_generic_target_with_deterministic_fallback(tmp_path):
+def test_analyze_candidate_keeps_generic_target_by_default(tmp_path):
     source = (
         Path(__file__).resolve().parents[1] / "examples" / "heavy_compute.py"
     ).read_text(encoding="utf-8")
@@ -216,6 +216,26 @@ def test_analyze_candidate_replaces_generic_target_with_deterministic_fallback(t
         target="unspecified",
         strategy="inspect hot path",
         rationale="",
+    )
+
+    assert result.output["target"] == "unspecified"
+    assert result.output["strategy"] == "inspect hot path"
+    assert result.output["rationale"] == ""
+
+
+def test_analyze_candidate_replaces_generic_target_when_deterministic_fallback_enabled(tmp_path):
+    source = (
+        Path(__file__).resolve().parents[1] / "examples" / "heavy_compute.py"
+    ).read_text(encoding="utf-8")
+    project_path = tmp_path / "sample_project.py"
+    project_path.write_text(source, encoding="utf-8")
+
+    result = AnalyzeCandidateTool().execute(
+        project_path=str(project_path),
+        target="unspecified",
+        strategy="inspect hot path",
+        rationale="",
+        allow_deterministic_fallback=True,
     )
 
     assert result.output["target"] == "matrix_multiply"
@@ -236,6 +256,7 @@ def test_analyze_candidate_avoids_rejected_target(tmp_path):
         strategy="loop reorder",
         rationale="",
         rejected_targets=["matrix_multiply"],
+        allow_deterministic_fallback=True,
     )
 
     assert result.output["target"] != "matrix_multiply"

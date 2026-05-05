@@ -1,0 +1,3 @@
+name: prompt_chaining
+description: Prompt chaining strategy where each tool output becomes the next prompt input.
+version: 1.0.0

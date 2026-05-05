@@ -31,7 +31,8 @@ Source: {{source_context}}
 # Rules
 1. Never change the output of the program.
 2. Think step by step in the `thought_process` array before issuing the final action.
-3. Prefer exact action names from the allowed list even though the runner can normalize some aliases.
+3. Keep `thought_process` to at most 3 short, evidence-grounded items. Do not reveal hidden/private reasoning.
+4. Prefer exact action names from the allowed list even though the runner can normalize some aliases.
 
 ## Budget Limits
 Limits: {{guardrail_limits}}

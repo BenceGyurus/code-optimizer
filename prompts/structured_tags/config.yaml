@@ -1,0 +1,3 @@
+name: structured_tags
+description: XML-tag structured prompting strategy for clean context separation.
+version: 1.0.0

@@ -2,9 +2,10 @@ Based on the current state, what is the next best action?
 Allowed: {{allowed_actions}}
 Current session: {{session_summary}}
 
-Let's think step by step. Return exactly one JSON object.
+Use a short visible chain of thought. Return exactly one JSON object.
 Runtime contract:
 - The runtime ignores `thought_process` and consumes `action`, `args`, and `reason`.
+- `thought_process` must contain at most 3 short items.
 - Copy `action` exactly from Allowed actions.
 - `analyze_candidate` needs `target`, `strategy`, `rationale`.
 - `propose_change` needs `target`, `strategy`, `patch`, `rationale`; the patch should start with `diff --git` when a safe change exists.
@@ -16,7 +17,7 @@ Schema:
   "thought_process": [
     "Step 1: Identify current state",
     "Step 2: Identify allowed actions",
-    "Step 3: Map the best action to the tool's real args contract"
+    "Step 3: Map the best action to the real args contract"
   ],
   "action": "tool_name",
   "args": { ... },

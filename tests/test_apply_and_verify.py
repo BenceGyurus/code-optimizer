@@ -4,20 +4,11 @@ from optimizer.orchestrator.state_machine import State
 from optimizer.tools.apply_and_verify import ApplyAndVerifyTool
 
 
-def test_apply_and_verify_applies_begin_patch_directly(tmp_path):
-    source_path = Path(__file__).resolve().parents[1] / "examples" / "heavy_compute.py"
-    project_path = tmp_path / "sample_project.py"
-    project_path.write_text(source_path.read_text(encoding="utf-8"), encoding="utf-8")
-
-    patch = """*** Begin Patch
+MOVING_AVERAGE_PATCH = """*** Begin Patch
 *** Update File: sample_project.py
 @@
 -def moving_average_slow(values, window):
--    \"\"\"Recomputes every window sum from scratch.
--
--    Optimization difficulty: easy. This can be replaced by a sliding-window
--    running sum without changing results.
--    \"\"\"
+-    \"\"\"Return fixed-width moving averages.\"\"\"
 -    if window <= 0:
 -        raise ValueError(\"window must be positive\")
 -    if window > len(values):
@@ -31,11 +22,7 @@ def test_apply_and_verify_applies_begin_patch_directly(tmp_path):
 -        averages.append(total / window)
 -    return averages
 +def moving_average_slow(values, window):
-+    \"\"\"Recomputes every window sum from scratch.
-+
-+    Optimization difficulty: easy. This can be replaced by a sliding-window
-+    running sum without changing results.
-+    \"\"\"
++    \"\"\"Return fixed-width moving averages.\"\"\"
 +    if window <= 0:
 +        raise ValueError(\"window must be positive\")
 +    if window > len(values):
@@ -50,6 +37,14 @@ def test_apply_and_verify_applies_begin_patch_directly(tmp_path):
 +    return averages
 *** End Patch
 """
+
+
+def test_apply_and_verify_applies_begin_patch_directly(tmp_path):
+    source_path = Path(__file__).resolve().parents[1] / "examples" / "heavy_compute.py"
+    project_path = tmp_path / "sample_project.py"
+    project_path.write_text(source_path.read_text(encoding="utf-8"), encoding="utf-8")
+
+    patch = MOVING_AVERAGE_PATCH
 
     result = ApplyAndVerifyTool().execute(
         patch=patch,
@@ -72,47 +67,7 @@ def test_apply_and_verify_rolls_back_begin_patch_on_failed_verification(tmp_path
     original = source_path.read_text(encoding="utf-8")
     project_path.write_text(original, encoding="utf-8")
 
-    patch = """*** Begin Patch
-*** Update File: sample_project.py
-@@
--def moving_average_slow(values, window):
--    \"\"\"Recomputes every window sum from scratch.
--
--    Optimization difficulty: easy. This can be replaced by a sliding-window
--    running sum without changing results.
--    \"\"\"
--    if window <= 0:
--        raise ValueError(\"window must be positive\")
--    if window > len(values):
--        return []
--
--    averages = []
--    for index in range(len(values) - window + 1):
--        total = 0.0
--        for offset in range(window):
--            total += values[index + offset]
--        averages.append(total / window)
--    return averages
-+def moving_average_slow(values, window):
-+    \"\"\"Recomputes every window sum from scratch.
-+
-+    Optimization difficulty: easy. This can be replaced by a sliding-window
-+    running sum without changing results.
-+    \"\"\"
-+    if window <= 0:
-+        raise ValueError(\"window must be positive\")
-+    if window > len(values):
-+        return []
-+
-+    window_sum = sum(values[:window])
-+    averages = [window_sum / window]
-+    for index in range(window, len(values)):
-+        window_sum += values[index]
-+        window_sum -= values[index - window]
-+        averages.append(window_sum / window)
-+    return averages
-*** End Patch
-"""
+    patch = MOVING_AVERAGE_PATCH
 
     ApplyAndVerifyTool().execute(
         patch=patch,

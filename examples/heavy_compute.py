@@ -5,11 +5,7 @@ import unittest
 
 
 def matrix_multiply(a, b):
-    """Deliberately cache-unfriendly O(n^3) matrix multiplication.
-
-    Optimization difficulty: medium. A good patch can keep O(n^3), but reorder
-    loops and hoist row lookups to reduce Python overhead and improve locality.
-    """
+    """Multiply two dense matrices represented as nested lists."""
     rows_a = len(a)
     cols_a = len(a[0])
     rows_b = len(b)
@@ -23,18 +19,13 @@ def matrix_multiply(a, b):
         for j in range(cols_b):
             total = 0.0
             for k in range(cols_a):
-                # Slow access pattern: b[k][j] jumps between rows.
                 total += a[i][k] * b[k][j]
             result[i][j] = total
     return result
 
 
 def moving_average_slow(values, window):
-    """Recomputes every window sum from scratch.
-
-    Optimization difficulty: easy. This can be replaced by a sliding-window
-    running sum without changing results.
-    """
+    """Return fixed-width moving averages."""
     if window <= 0:
         raise ValueError("window must be positive")
     if window > len(values):
@@ -50,11 +41,7 @@ def moving_average_slow(values, window):
 
 
 def join_events_to_users_slow(events, users):
-    """Repeated linear lookup for each event.
-
-    Optimization difficulty: easy-medium. Building a user_id -> user_name map
-    avoids repeatedly scanning the same user list.
-    """
+    """Attach user names to event records."""
     joined = []
     for event in events:
         user_name = "unknown"
@@ -75,11 +62,7 @@ def join_events_to_users_slow(events, users):
 
 
 def category_totals_slow(records, categories):
-    """Nested category scan that can be replaced by one-pass aggregation.
-
-    Optimization difficulty: medium. The output order must stay the same as
-    the category list, but each record should only need to be visited once.
-    """
+    """Return totals and counts for the requested categories."""
     totals = {}
     for category in categories:
         total = 0
@@ -93,11 +76,7 @@ def category_totals_slow(records, categories):
 
 
 def heat_diffusion_slow(grid, passes):
-    """Repeated 5-point stencil with needless allocation and poor locality.
-
-    Optimization difficulty: medium-hard. A good patch can reduce temporary
-    allocations, hoist row references, and reuse buffers between passes.
-    """
+    """Run repeated 5-point grid diffusion passes."""
     height = len(grid)
     width = len(grid[0])
     current = [row[:] for row in grid]
@@ -121,11 +100,7 @@ def heat_diffusion_slow(grid, passes):
 
 
 def branchy_event_score_slow(records):
-    """Branch-heavy scoring loop with repeated dict lookups.
-
-    Optimization difficulty: medium. The logic must stay identical, but local
-    bindings and cheaper dispatch can reduce Python overhead.
-    """
+    """Compute a deterministic score for event records."""
     total = 0
     for record in records:
         amount = record["amount"]
@@ -155,11 +130,7 @@ def branchy_event_score_slow(records):
 
 
 def rolling_volatility_slow(values, window):
-    """Computes per-window mean and variance with repeated rescans.
-
-    Optimization difficulty: easy-medium. Prefix sums can turn repeated window
-    scans into O(n) work while preserving the exact floating-point result.
-    """
+    """Return per-window mean and variance pairs."""
     if window <= 0:
         raise ValueError("window must be positive")
     if window > len(values):
@@ -181,11 +152,7 @@ def rolling_volatility_slow(values, window):
 
 
 def column_energy_slow(matrix):
-    """Sums column energies with cache-hostile column traversal.
-
-    Optimization difficulty: medium. Row-hoisting or transpose-once approaches
-    can preserve semantics while improving locality.
-    """
+    """Return a deterministic energy value for each matrix column."""
     if not matrix or not matrix[0]:
         return []
 
@@ -202,11 +169,7 @@ def column_energy_slow(matrix):
 
 
 def segmented_prefix_sums_slow(records):
-    """Recomputes category-local prefix totals with repeated backwards scans.
-
-    Optimization difficulty: medium. A single-pass category accumulator can
-    preserve order while avoiding O(n^2) behavior on repeated categories.
-    """
+    """Return category-local prefix totals in input order."""
     prefixes = []
     for index, record in enumerate(records):
         running = 0
@@ -226,11 +189,7 @@ def segmented_prefix_sums_slow(records):
 
 
 def token_frequency_slow(records):
-    """Normalizes text and counts tokens with repeated lowercase/split work.
-
-    Optimization difficulty: medium. Pre-normalization and cheaper token
-    handling can reduce string churn while keeping counts stable.
-    """
+    """Build a token frequency map from event-like records."""
     counts = {}
     for record in records:
         sentence = (
@@ -243,11 +202,7 @@ def token_frequency_slow(records):
 
 
 def sparse_bucket_updates_slow(records, bucket_count):
-    """Scatter-style accumulation with repeated modulo math and branchy updates.
-
-    Optimization difficulty: medium-hard. Local bindings, pre-sized buffers,
-    and hoisted modulo results help without changing the final vector.
-    """
+    """Apply deterministic sparse bucket updates."""
     buckets = [0] * bucket_count
     for record in records:
         amount = record["amount"]
@@ -263,11 +218,7 @@ def sparse_bucket_updates_slow(records, bucket_count):
 
 
 def pairwise_distance_histogram_slow(points, bins, scale):
-    """Builds a histogram from all pair distances with sqrt-heavy inner loops.
-
-    Optimization difficulty: medium-hard. Symmetry, local bindings, and cheaper
-    binning can reduce overhead while keeping the histogram identical.
-    """
+    """Build a histogram from pairwise point distances."""
     histogram = [0] * bins
     for index, (x1, y1) in enumerate(points):
         for other in range(index + 1, len(points)):

@@ -33,6 +33,7 @@ if ! command -v perf >/dev/null 2>&1; then
 fi
 
 export MPLCONFIGDIR="${MPLCONFIGDIR:-/tmp/matplotlib}"
+export XDG_CACHE_HOME="${XDG_CACHE_HOME:-/tmp/optimizer-cache}"
 export OPENROUTER_RESPONSE_FORMAT="${OPENROUTER_RESPONSE_FORMAT:-off}"
 export OPENROUTER_TIMEOUT="${OPENROUTER_TIMEOUT:-180}"
 export OLLAMA_HOST="${OLLAMA_HOST:-http://192.168.1.46:11434}"
@@ -43,7 +44,7 @@ export OLLAMA_TIMEOUT="${OLLAMA_TIMEOUT:-900}"
 export OLLAMA_MODEL_ID
 export PYTHONPATH="${REPO_ROOT}/src${PYTHONPATH:+:${PYTHONPATH}}"
 
-mkdir -p "${MPLCONFIGDIR}"
+mkdir -p "${MPLCONFIGDIR}" "${XDG_CACHE_HOME}"
 cd "${REPO_ROOT}"
 
 TEST_COMMAND="\"${PYTHON_BIN}\" \"${REPO_ROOT}/scripts/repeat_unittest_summary.py\" --pattern \"${PROJECT_FILE}\" --repetitions ${RUN_REPETITIONS}"
@@ -79,10 +80,11 @@ fi
   --runtime-repetitions "${RUN_REPETITIONS}" \
   --hardware-repetitions "${RUN_REPETITIONS}" \
   --test-command "${TEST_COMMAND}" \
-  --benchmark-command "python3 ${PROJECT_FILE} --skip-tests --repetitions 1" \
-  --profile-command "perf stat -e cache-references,cache-misses,branches,branch-misses,L1-dcache-loads,L1-dcache-load-misses,LLC-loads,LLC-load-misses -- python3 ${PROJECT_FILE} --skip-tests --repetitions 1" \
+  --benchmark-command "\"${PYTHON_BIN}\" ${PROJECT_FILE} --skip-tests --repetitions 1" \
+  --profile-command "perf stat -e cache-references,cache-misses,branches,branch-misses,L1-dcache-loads,L1-dcache-load-misses,LLC-loads,LLC-load-misses -- \"${PYTHON_BIN}\" ${PROJECT_FILE} --skip-tests --repetitions 1" \
   --output-dir "${OUTPUT_DIR}" \
   --max-llm-calls 14 \
   --max-tool-calls 28 \
   --max-iterations 3 \
+  --no-deterministic-fallback \
   --verbose

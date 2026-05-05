@@ -4,13 +4,9 @@ from typing import List, Optional
 
 from optimizer.providers.base import LLMRequest, LLMResponse, Provider
 
-try:
-    from google import genai as google_genai
-    from google.genai import types as genai_types
-except ImportError:  # pragma: no cover - optional provider dependency
-    google_genai = None
-    genai_types = None
-
+google_genai = None
+genai_types = None
+new_sdk_checked = False
 legacy_genai = None
 
 
@@ -18,9 +14,14 @@ class GeminiProvider(Provider):
     def __init__(self, api_key: Optional[str] = None, model_name: Optional[str] = None):
         self.api_key = api_key or os.getenv("GEMINI_API_KEY")
         self.model_name = model_name or os.getenv("GEMINI_MODEL") or "gemini-2.5-flash"
-        self._client = google_genai.Client(api_key=self.api_key) if self.api_key and google_genai else None
+        self._genai_types = None
+        self._client = None
+        if self.api_key:
+            google_module, types_module = self._new_sdk_modules()
+            self._genai_types = types_module
+            self._client = google_module.Client(api_key=self.api_key) if google_module else None
         self._legacy_model = None
-        if self._client is None:
+        if self.api_key and self._client is None:
             self._legacy_model = self._load_legacy_model()
 
     def is_available(self) -> bool:
@@ -56,7 +57,10 @@ class GeminiProvider(Provider):
         raise RuntimeError("Gemini provider is unavailable. Install google-genai or google-generativeai.")
 
     def _send_with_new_sdk(self, model: str, prompt: str, request: LLMRequest) -> LLMResponse:
-        config = genai_types.GenerateContentConfig(
+        _, types_module = self._new_sdk_modules()
+        if types_module is None:
+            raise RuntimeError("Gemini provider is unavailable. Install google-genai.")
+        config = types_module.GenerateContentConfig(
             temperature=request.temperature,
             max_output_tokens=request.max_tokens,
             response_mime_type="application/json",
@@ -97,11 +101,29 @@ class GeminiProvider(Provider):
         )
 
     def _load_legacy_model(self):
+        if not self.api_key:
+            return None
         legacy = self._legacy_module()
-        if not self.api_key or legacy is None:
+        if legacy is None:
             return None
         legacy.configure(api_key=self.api_key)
         return legacy.GenerativeModel(self.model_name)
+
+    def _new_sdk_modules(self):
+        global google_genai, genai_types, new_sdk_checked
+        if new_sdk_checked:
+            return google_genai, genai_types
+        new_sdk_checked = True
+        try:
+            from google import genai as imported_google_genai
+            from google.genai import types as imported_genai_types
+
+            google_genai = imported_google_genai
+            genai_types = imported_genai_types
+        except ImportError:  # pragma: no cover - optional provider dependency
+            google_genai = None
+            genai_types = None
+        return google_genai, genai_types
 
     def _legacy_module(self):
         global legacy_genai

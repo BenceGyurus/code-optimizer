@@ -360,7 +360,9 @@ class Orchestrator:
         if isinstance(output, dict):
             if output.get("target"):
                 self.session_state.current_target = output["target"]
-            if output.get("patch"):
+            if action_name == "propose_change" and "patch" in output:
+                self.pending_patch = output["patch"] or ""
+            elif output.get("patch"):
                 self.pending_patch = output["patch"]
             if action_name == "apply_and_verify":
                 verification = output.get("verification_result") or {}
@@ -368,6 +370,8 @@ class Orchestrator:
                     self.pending_patch = ""
                 elif verification.get("short_error_summary") or verification.get("noop_patch") or verification.get("fallback_applied"):
                     self._record_rejected_target(self.session_state.current_target, "patch failed or fallback was needed")
+                    if not verification.get("patch_applied") or verification.get("noop_patch"):
+                        self.pending_patch = ""
             if action_name == "run_baseline":
                 self.session_state.checkpoint_metadata["baseline_result"] = output
                 self.session_state.best_result = output
@@ -725,7 +729,13 @@ class Orchestrator:
         current_state: State,
         allowed_tools: list[str],
     ) -> Optional[dict[str, Any]]:
-        if current_state in {State.BASELINE_READY, State.PROFILE_READY} and "analyze_candidate" in allowed_tools:
+        allow_deterministic = bool(self.command_args.get("allow_deterministic_fallback"))
+
+        if (
+            allow_deterministic
+            and current_state in {State.BASELINE_READY, State.PROFILE_READY}
+            and "analyze_candidate" in allowed_tools
+        ):
             current_target = str(self.session_state.current_target or "")
             preferred_targets = [current_target if current_target not in self._rejected_targets() else ""]
             preferred_targets.extend(self._preferred_targets())
@@ -746,7 +756,11 @@ class Orchestrator:
                         "reason": "Parse fallback.",
                     }
 
-        if current_state == State.ANALYSIS_READY and "propose_change" in allowed_tools:
+        if (
+            allow_deterministic
+            and current_state == State.ANALYSIS_READY
+            and "propose_change" in allowed_tools
+        ):
             current_target = str(self.session_state.current_target or "")
             preferred_targets = [current_target if current_target not in self._rejected_targets() else ""]
             preferred_targets.extend(self._preferred_targets())

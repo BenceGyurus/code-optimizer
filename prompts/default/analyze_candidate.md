@@ -1,6 +1,6 @@
-Analyze the latest baseline/profile result and select one optimization target.
+Analyze the latest baseline/profile result and select one concrete optimization target.
 
-Return JSON:
+Return exactly one JSON object. No markdown. No prose outside JSON.
 {
   "action": "analyze_candidate",
   "args": {
@@ -8,7 +8,7 @@ Return JSON:
     "strategy": "hardware-first or algorithm-first strategy",
     "rationale": "short reason"
   },
-  "reason": "why this target is best now"
+  "reason": "why this measured target is best now"
 }
 
 

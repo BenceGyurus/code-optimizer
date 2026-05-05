@@ -1,13 +1,12 @@
 Compare the latest measurement against the baseline and decide whether to stop.
 
-Let's think step by step. Return exactly one JSON object.
+Use a short visible chain of thought. Return exactly one JSON object.
 Schema:
 {
   "thought_process": [
     "Step 1: Extract baseline runtime/memory",
     "Step 2: Extract new runtime/memory",
-    "Step 3: Calculate percentage change",
-    "Step 4: Decide if diminishing returns are reached"
+    "Step 3: Decide if diminishing returns are reached"
   ],
   "action": "evaluate_result",
   "args": {

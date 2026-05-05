@@ -110,9 +110,28 @@ Prompt packs live under `prompts/` and must include:
 
 Included packs:
 
-- `default`
-- `hardware_focus`
+- `agentic`
 - `concise`
+- `cot`
+- `default`
+- `few_shot`
+- `hardware_focus`
+- `hypothesis_driven`
+- `knowledge_gen`
+- `least_to_most`
+- `negative_constraints`
+- `one_shot`
+- `prompt_chaining`
+- `reasoning_goal`
+- `role_create`
+- `self_refine`
+- `structured_tags`
+- `zero_shot`
+
+Debian helper scripts:
+
+- `scripts/evaluate_debian_smoke.sh`: one low-cost sanity run, defaults to `openrouter=openai/gpt-oss-120b:free` and `knowledge_gen`.
+- `scripts/evaluate_debian_full.sh`: full OpenRouter + Ollama matrix. Override `PROVIDER_MODELS`, `PROMPT_PACKS`, or `RUN_REPETITIONS` to run a smaller pilot before the expensive full experiment.
 
 ## Results
 
@@ -129,7 +148,7 @@ results/eval_<timestamp>/
   experiment_matrix.yaml
   aggregated_results.csv
   aggregated_results.yaml
-  charts/*.svg
+  charts/*.png
   per_run/
   report.md
 ```

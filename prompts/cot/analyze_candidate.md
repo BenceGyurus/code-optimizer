@@ -1,6 +1,6 @@
 Analyze the latest profile result and select one optimization target.
 
-Let's think step by step about the bottlenecks. Return exactly one JSON object.
+Use a short visible chain of thought about the bottlenecks. Return exactly one JSON object.
 Schema:
 {
   "thought_process": [

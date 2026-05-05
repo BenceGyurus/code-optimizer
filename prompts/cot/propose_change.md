@@ -1,19 +1,18 @@
 Propose a minimal unified-diff patch for {{current_target}}.
 
-Let's think step by step about how to safely modify this code. Return exactly one JSON object.
+Use a short visible chain of thought about how to safely modify this code. Return exactly one JSON object.
 Schema:
 {
   "thought_process": [
     "Step 1: Analyze current implementation of target",
     "Step 2: Draft the optimization",
-    "Step 3: Verify mathematical equivalence",
-    "Step 4: Format as unified diff"
+    "Step 3: Verify mathematical equivalence and diff format"
   ],
   "action": "propose_change",
   "args": {
     "target": "{{current_target}}",
     "strategy": "chosen strategy",
-    "patch": "unified diff or empty string",
+    "patch": "real unified diff beginning with diff --git, or empty string",
     "rationale": "short rationale"
   },
   "reason": "why this patch is safe"

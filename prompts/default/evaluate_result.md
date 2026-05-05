@@ -1,6 +1,6 @@
 Compare latest measurement against the baseline and decide whether to stop.
 
-Return JSON:
+Return exactly one JSON object. No markdown. No prose outside JSON.
 {
   "action": "evaluate_result",
   "args": {

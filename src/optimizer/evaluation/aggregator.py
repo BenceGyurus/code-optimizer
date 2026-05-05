@@ -13,11 +13,15 @@ class ResultAggregator:
             for tool_name, count in tool_usage.items():
                 if isinstance(count, int):
                     tool_usage_totals[tool_name] = tool_usage_totals.get(tool_name, 0) + count
+        successful_runs = sum(1 for row in rows if _is_successful_run(row))
+        failed_runs = sum(1 for row in rows if row.get("final_state") == "FAILED")
+        incomplete_runs = len(rows) - successful_runs - failed_runs
 
         return {
             "total_runs": len(rows),
-            "successful_runs": sum(1 for row in rows if row.get("final_state") in {"DONE", "BASELINE_READY", "REMEASURED"}),
-            "failed_runs": sum(1 for row in rows if row.get("final_state") == "FAILED"),
+            "successful_runs": successful_runs,
+            "failed_runs": failed_runs,
+            "incomplete_runs": incomplete_runs,
             "fallback_runs": sum(1 for row in rows if row.get("fallback_applied") is True),
             "fallback_count": summarize(_numeric_values(rows, "fallback_count")),
             "patch_apply_failures": summarize(_numeric_values(rows, "patch_apply_failures")),
@@ -66,3 +70,12 @@ def _nested_numeric_values(rows: List[Dict[str, object]], container_key: str, va
         if isinstance(value, (int, float)):
             values.append(float(value))
     return values
+
+
+def _is_successful_run(row: Dict[str, object]) -> bool:
+    if row.get("final_state") not in {"DONE", "REMEASURED"}:
+        return False
+    return all(
+        isinstance(row.get(key), (int, float))
+        for key in ("baseline_runtime", "optimized_runtime", "relative_speedup")
+    )

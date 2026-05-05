@@ -10,11 +10,7 @@ MOVING_AVERAGE_PATCH = """*** Begin Patch
 *** Update File: __PROJECT_FILE__
 @@
 -def moving_average_slow(values, window):
--    \"\"\"Recomputes every window sum from scratch.
--
--    Optimization difficulty: easy. This can be replaced by a sliding-window
--    running sum without changing results.
--    \"\"\"
+-    \"\"\"Return fixed-width moving averages.\"\"\"
 -    if window <= 0:
 -        raise ValueError(\"window must be positive\")
 -    if window > len(values):
@@ -28,11 +24,7 @@ MOVING_AVERAGE_PATCH = """*** Begin Patch
 -        averages.append(total / window)
 -    return averages
 +def moving_average_slow(values, window):
-+    \"\"\"Recomputes every window sum from scratch.
-+
-+    Optimization difficulty: easy. This can be replaced by a sliding-window
-+    running sum without changing results.
-+    \"\"\"
++    \"\"\"Return fixed-width moving averages.\"\"\"
 +    if window <= 0:
 +        raise ValueError(\"window must be positive\")
 +    if window > len(values):
@@ -112,4 +104,7 @@ class MockProvider(Provider):
         match = re.search(r"File:\s+([^\n]+)", prompt or "")
         if not match:
             return "project.py"
-        return os.path.basename(match.group(1).strip())
+        path = match.group(1).strip()
+        if os.path.isabs(path) or path.startswith(".."):
+            return os.path.basename(path)
+        return path

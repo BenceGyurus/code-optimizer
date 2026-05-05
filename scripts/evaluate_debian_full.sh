@@ -14,8 +14,8 @@ PROJECT_FILE="$(basename "${PROJECT}")"
 PYTHON_BIN="${PYTHON_BIN:-${REPO_ROOT}/.venv/bin/python}"
 RUN_REPETITIONS="${RUN_REPETITIONS:-15}"
 OLLAMA_MODEL_ID="${OLLAMA_MODEL_ID:-qwen2.5-coder:7b}"
-EFFECTIVE_PROVIDER_MODELS="${PROVIDER_MODELS:-openrouter=google/gemini-3.1-pro-preview,openrouter=openai/gpt-5.5,openrouter=openai/gpt-oss-120b,openrouter=moonshotai/kimi-k2.6,openrouter=openai/gpt-5.3-codex,openrouter=deepseek/deepseek-v3.2,ollama=${OLLAMA_MODEL_ID}}"
-EFFECTIVE_PROMPT_PACKS="${PROMPT_PACKS:-default,hardware_focus,role_create,zero_shot,agentic,reasoning_goal,cot,least_to_most,concise,knowledge_gen,few_shot,self_refine,hypothesis_driven,negative_constraints}"
+EFFECTIVE_PROVIDER_MODELS="${PROVIDER_MODELS:-openrouter=google/gemini-3.1-pro-preview,openrouter=anthropic/claude-sonnet-4.6,openrouter=openai/gpt-5.4,openrouter=openai/gpt-oss-120b,openrouter=moonshotai/kimi-k2.6,openrouter=openai/gpt-5.3-codex,openrouter=minimax/minimax-m2.7,openrouter=google/gemini-3-flash-preview,openrouter=deepseek/deepseek-v3.2,ollama=${OLLAMA_MODEL_ID}}"
+EFFECTIVE_PROMPT_PACKS="${PROMPT_PACKS:-default,hardware_focus,role_create,zero_shot,one_shot,few_shot,agentic,reasoning_goal,cot,least_to_most,prompt_chaining,structured_tags,concise,knowledge_gen,self_refine,hypothesis_driven,negative_constraints}"
 
 if [[ ! -x "${PYTHON_BIN}" ]]; then
   echo "Python interpreter not found: ${PYTHON_BIN}" >&2
@@ -33,6 +33,7 @@ if ! command -v perf >/dev/null 2>&1; then
 fi
 
 export MPLCONFIGDIR="${MPLCONFIGDIR:-/tmp/matplotlib}"
+export XDG_CACHE_HOME="${XDG_CACHE_HOME:-/tmp/optimizer-cache}"
 export OPENROUTER_RESPONSE_FORMAT="${OPENROUTER_RESPONSE_FORMAT:-off}"
 export OPENROUTER_TIMEOUT="${OPENROUTER_TIMEOUT:-180}"
 export OLLAMA_HOST="${OLLAMA_HOST:-http://192.168.1.46:11434}"
@@ -43,7 +44,7 @@ export OLLAMA_TIMEOUT="${OLLAMA_TIMEOUT:-900}"
 export OLLAMA_MODEL_ID
 export PYTHONPATH="${REPO_ROOT}/src${PYTHONPATH:+:${PYTHONPATH}}"
 
-mkdir -p "${MPLCONFIGDIR}"
+mkdir -p "${MPLCONFIGDIR}" "${XDG_CACHE_HOME}"
 cd "${REPO_ROOT}"
 
 TEST_COMMAND="\"${PYTHON_BIN}\" \"${REPO_ROOT}/scripts/repeat_unittest_summary.py\" --pattern \"${PROJECT_FILE}\" --repetitions ${RUN_REPETITIONS}"
@@ -79,10 +80,11 @@ fi
   --runtime-repetitions "${RUN_REPETITIONS}" \
   --hardware-repetitions "${RUN_REPETITIONS}" \
   --test-command "${TEST_COMMAND}" \
-  --benchmark-command "python3 ${PROJECT_FILE} --skip-tests --repetitions 1" \
-  --profile-command "perf stat -e cache-references,cache-misses,branches,branch-misses,L1-dcache-loads,L1-dcache-load-misses,LLC-loads,LLC-load-misses -- python3 ${PROJECT_FILE} --skip-tests --repetitions 1" \
+  --benchmark-command "\"${PYTHON_BIN}\" ${PROJECT_FILE} --skip-tests --repetitions 1" \
+  --profile-command "perf stat -e cache-references,cache-misses,branches,branch-misses,L1-dcache-loads,L1-dcache-load-misses,LLC-loads,LLC-load-misses -- \"${PYTHON_BIN}\" ${PROJECT_FILE} --skip-tests --repetitions 1" \
   --output-dir "${OUTPUT_DIR}" \
   --max-llm-calls 16 \
   --max-tool-calls 32 \
   --max-iterations 4 \
+  --no-deterministic-fallback \
   --verbose
