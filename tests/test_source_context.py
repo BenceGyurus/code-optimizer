@@ -105,3 +105,31 @@ def checksum(items):
     top_section = context.split("Top optimization candidates:", 1)[1].split("Use exact excerpt", 1)[0]
     assert "final_aggregation" in context
     assert not top_section.strip().startswith("1. checksum")
+
+
+def test_source_context_prioritizes_runtime_hotspots(tmp_path: Path) -> None:
+    source_path = tmp_path / "sample.py"
+    source_path.write_text(SOURCE, encoding="utf-8")
+
+    context = SourceContextBuilder(
+        str(source_path),
+        display_path="sample.py",
+        runtime_hotspots=[
+            {
+                "function": "cheap",
+                "file": "sample.py",
+                "line": 5,
+                "average_cumtime": 2.5,
+                "average_percent_cumtime": 80.0,
+                "average_primitive_calls": 1.0,
+            }
+        ],
+        max_chars=6000,
+    ).render(State.PROFILE_READY, target=None)
+
+    top_section = context.split("Top optimization candidates:", 1)[1].split("Use exact excerpt", 1)[0]
+    assert "Runtime hotspots from function profiling:" in context
+    assert "cheap line=5 cumtime=2.500000s share=80.00%" in context
+    assert top_section.strip().startswith("1. cheap")
+    assert "runtime_hotspot" in context
+    assert "Runtime profile: runtime_cumtime=2.500000s runtime_share=80.00%" in context

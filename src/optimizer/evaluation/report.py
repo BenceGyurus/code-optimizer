@@ -23,7 +23,9 @@ def write_report(eval_dir: str, aggregate: Dict[str, object]) -> str:
         handle.write(f"- Average final measured runtime: {_fmt_summary(aggregate.get('final_runtime') or aggregate.get('optimized_runtime'))}\n")
         handle.write(f"- Average accepted optimized runtime: {_fmt_summary(aggregate.get('accepted_optimized_runtime'))}\n")
         handle.write(f"- Average post-rollback runtime: {_fmt_summary(aggregate.get('post_rollback_runtime'))}\n")
-        handle.write(f"- Average relative speedup: {_fmt_summary(aggregate.get('relative_speedup'))}\n")
+        handle.write(f"- Average final measured speedup: {_fmt_summary(aggregate.get('final_relative_speedup') or aggregate.get('relative_speedup'))}\n")
+        handle.write(f"- Average accepted speedup: {_fmt_summary(aggregate.get('accepted_relative_speedup'))}\n")
+        handle.write(f"- Average attempted patch speedup: {_fmt_summary(aggregate.get('attempted_relative_speedup'))}\n")
         handle.write(f"- Average cache hit before: {_fmt_summary(aggregate.get('cache_hit_before'))}\n")
         handle.write(f"- Average cache hit after: {_fmt_summary(aggregate.get('cache_hit_after'))}\n")
         handle.write(f"- Average cache miss before: {_fmt_summary(aggregate.get('cache_miss_before'))}\n")
@@ -44,8 +46,8 @@ def write_report(eval_dir: str, aggregate: Dict[str, object]) -> str:
         rows = sorted(aggregate.get("rows") or [], key=_sort_key, reverse=True)
         if rows:
             handle.write("\n## Per-Run Summary\n\n")
-            handle.write("| provider | model | prompt_pack | rep | state | outcome | baseline_s | final_s | accepted_opt_s | speedup | patch_verified | fallback | patch_failures | verification_failures | performance_rollbacks | attempts | cache_hit_before | cache_hit_after | llm_calls | tool_calls |\n")
-            handle.write("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
+            handle.write("| provider | model | prompt_pack | rep | state | outcome | baseline_s | final_s | accepted_opt_s | final_speedup | accepted_speedup | attempted_speedup | patch_verified | fallback | patch_failures | verification_failures | performance_rollbacks | attempts | cache_hit_before | cache_hit_after | llm_calls | tool_calls |\n")
+            handle.write("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
             for row in rows:
                 handle.write(
                     "| "
@@ -58,7 +60,9 @@ def write_report(eval_dir: str, aggregate: Dict[str, object]) -> str:
                     f"{_fmt_value(row.get('baseline_runtime'))} | "
                     f"{_fmt_value(row.get('final_runtime') if row.get('final_runtime') is not None else row.get('optimized_runtime'))} | "
                     f"{_fmt_value(row.get('accepted_optimized_runtime'))} | "
-                    f"{_fmt_value(row.get('relative_speedup'))} | "
+                    f"{_fmt_value(row.get('final_relative_speedup') if row.get('final_relative_speedup') is not None else row.get('relative_speedup'))} | "
+                    f"{_fmt_value(row.get('accepted_relative_speedup'))} | "
+                    f"{_fmt_value(row.get('attempted_relative_speedup'))} | "
                     f"{_fmt_bool(row.get('verified_patch_applied'))} | "
                     f"{_fmt_bool(row.get('fallback_applied'))} | "
                     f"{_fmt_value(row.get('patch_apply_failures'))} | "

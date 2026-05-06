@@ -17,6 +17,9 @@ def test_report_distinguishes_final_and_accepted_runtime(tmp_path: Path) -> None
         "accepted_optimized_runtime": {"average": None},
         "post_rollback_runtime": {"average": 10.5},
         "relative_speedup": {"average": 0.95},
+        "final_relative_speedup": {"average": 0.95},
+        "accepted_relative_speedup": {"average": None},
+        "attempted_relative_speedup": {"average": 0.95},
         "optimization_attempts": {"average": 2.0},
         "unsupported_hardware_counters": ["llc_loads", "llc_load_misses"],
         "rows": [
@@ -30,6 +33,8 @@ def test_report_distinguishes_final_and_accepted_runtime(tmp_path: Path) -> None
                 "baseline_runtime": 10.0,
                 "final_runtime": 10.5,
                 "relative_speedup": 0.95,
+                "final_relative_speedup": 0.95,
+                "attempted_relative_speedup": 0.95,
                 "verified_patch_applied": False,
                 "fallback_applied": False,
                 "performance_rollbacks": 2,
@@ -46,6 +51,7 @@ def test_report_distinguishes_final_and_accepted_runtime(tmp_path: Path) -> None
 
     assert "Average final measured runtime" in text
     assert "Average accepted optimized runtime" in text
+    assert "Average attempted patch speedup" in text
     assert "Unsupported hardware counters: LLC-loads, LLC-load-misses" in text
     assert "Rejected Optimization Attempts" in text
     assert "hot_loop" in text

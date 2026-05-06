@@ -34,8 +34,10 @@ class Evaluator:
         test_command: str | None = None,
         benchmark_command: str | None = None,
         profile_command: str | None = None,
+        function_profile_command: str | None = None,
         runtime_repetitions: int = 5,
         hardware_repetitions: int = 10,
+        function_profile_repetitions: int = 1,
         max_tool_calls: int = 50,
         max_llm_calls: int = 20,
         max_iterations: int = 5,
@@ -71,8 +73,10 @@ class Evaluator:
                 test_command=test_command,
                 benchmark_command=benchmark_command,
                 profile_command=profile_command,
+                function_profile_command=function_profile_command,
                 runtime_repetitions=runtime_repetitions,
                 hardware_repetitions=hardware_repetitions,
+                function_profile_repetitions=function_profile_repetitions,
                 allow_deterministic_fallback=allow_deterministic_fallback,
                 output_dir=os.path.join(eval_dir, "per_run"),
                 model=config.model,
@@ -118,6 +122,20 @@ class Evaluator:
         patch_application_count = _patch_application_count(tool_outputs)
         accepted_runtime = measured_runtime if verified_patch_applied and performance_rollbacks == 0 else None
         post_rollback_runtime = measured_runtime if performance_rollbacks > 0 and not verified_patch_applied else None
+        rejected_target_details = _read_rejected_target_details(summary, tool_outputs)
+        final_relative_speedup = relative_speedup
+        accepted_relative_speedup = (
+            baseline_runtime / accepted_runtime
+            if isinstance(baseline_runtime, (int, float))
+            and isinstance(accepted_runtime, (int, float))
+            and accepted_runtime > 0
+            else None
+        )
+        attempted_relative_speedup = _attempted_relative_speedup(
+            rejected_target_details,
+            patch_application_count,
+            relative_speedup,
+        )
 
         return {
             "session_dir": session_dir,
@@ -132,11 +150,15 @@ class Evaluator:
             "accepted_optimized_runtime": accepted_runtime,
             "post_rollback_runtime": post_rollback_runtime,
             "relative_speedup": relative_speedup,
+            "final_relative_speedup": final_relative_speedup,
+            "accepted_relative_speedup": accepted_relative_speedup,
+            "attempted_relative_speedup": attempted_relative_speedup,
             "hardware_before": embedded_hardware_before or _read_hardware_summary(baseline_profile),
             "hardware_after": embedded_hardware_after or _read_hardware_summary(optimized_profile),
+            "function_hotspots": _read_function_hotspots(baseline_profile),
             "unsupported_hardware_counters": _unsupported_hardware_counters(tool_outputs),
             "rejected_targets": _read_rejected_targets(summary),
-            "rejected_target_details": _read_rejected_target_details(summary, tool_outputs),
+            "rejected_target_details": rejected_target_details,
             "tool_usage": tool_usage,
             "fallback_applied": _fallback_applied(tool_outputs),
             "fallback_count": _fallback_count(tool_outputs),
@@ -207,6 +229,15 @@ def _read_hardware_summary(tool_output: dict) -> dict:
         elif isinstance(value, (int, float)):
             reduced[key] = float(value)
     return reduced
+
+
+def _read_function_hotspots(tool_output: dict) -> list[dict[str, Any]]:
+    if not isinstance(tool_output, dict):
+        return []
+    hotspots = tool_output.get("function_hotspots")
+    if not isinstance(hotspots, list):
+        return []
+    return [hotspot for hotspot in hotspots if isinstance(hotspot, dict)]
 
 
 def _read_embedded_hardware_summary(summary: dict, key: str) -> dict:
@@ -390,6 +421,24 @@ def _read_rejected_target_details(summary: dict, tool_outputs: dict[str, Any]) -
     for target in _read_rejected_targets(summary):
         details.setdefault(target, {"target": target, "reason": "", "relative_speedup": None})
     return [details[target] for target in sorted(details.keys())]
+
+
+def _attempted_relative_speedup(
+    rejected_target_details: list[dict[str, Any]],
+    patch_application_count: int,
+    relative_speedup: float | None,
+) -> float | None:
+    rejected_speedups = [
+        _to_float(detail.get("relative_speedup"))
+        for detail in rejected_target_details
+        if isinstance(detail, dict)
+    ]
+    rejected_speedups = [value for value in rejected_speedups if value is not None]
+    if rejected_speedups:
+        return rejected_speedups[-1]
+    if patch_application_count > 0:
+        return relative_speedup
+    return None
 
 
 def _speedup_from_reason(reason: str) -> float | None:

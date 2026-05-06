@@ -29,7 +29,15 @@ def test_collect_run_details_uses_profile_execution_and_terminal_remeasure(tmp_p
             "hardware_summary": {
                 "cache_miss_rate": {"average": 0.25},
                 "branch_miss_rate": {"average": 0.11},
-            }
+            },
+            "function_hotspots": [
+                {
+                    "function": "segmented_prefix_sums_slow",
+                    "file": "heavy_compute.py",
+                    "line": 171,
+                    "average_cumtime": 2.5,
+                }
+            ],
         },
         timestamp=100.0,
     )
@@ -52,8 +60,19 @@ def test_collect_run_details_uses_profile_execution_and_terminal_remeasure(tmp_p
     assert details["final_runtime"] == 9.0
     assert details["accepted_optimized_runtime"] is None
     assert details["relative_speedup"] == 1.3333333333
+    assert details["final_relative_speedup"] == 1.3333333333
+    assert details["accepted_relative_speedup"] is None
+    assert details["attempted_relative_speedup"] is None
     assert details["hardware_before"] == {"cache_miss_rate": 0.25, "branch_miss_rate": 0.11}
     assert details["hardware_after"] == {"cache_miss_rate": 0.18, "branch_miss_rate": 0.07}
+    assert details["function_hotspots"] == [
+        {
+            "function": "segmented_prefix_sums_slow",
+            "file": "heavy_compute.py",
+            "line": 171,
+            "average_cumtime": 2.5,
+        }
+    ]
 
 
 def test_load_tool_outputs_keeps_latest_artifact_per_tool(tmp_path: Path, monkeypatch) -> None:
@@ -373,6 +392,9 @@ def test_collect_run_details_reports_final_runtime_after_rollback(tmp_path: Path
     assert details["final_runtime"] == 10.5
     assert details["accepted_optimized_runtime"] is None
     assert details["post_rollback_runtime"] == 10.5
+    assert details["final_relative_speedup"] == 0.95238
+    assert details["accepted_relative_speedup"] is None
+    assert details["attempted_relative_speedup"] == 0.95
     assert details["rejected_targets"] == ["hot_loop"]
     assert details["rejected_target_details"] == [
         {"target": "hot_loop", "reason": "runtime regression", "relative_speedup": 0.95}

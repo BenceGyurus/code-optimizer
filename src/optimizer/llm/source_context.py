@@ -1,7 +1,7 @@
 import ast
 import os
 from dataclasses import dataclass
-from typing import Iterable
+from typing import Any, Iterable
 
 from optimizer.orchestrator.state_machine import State
 
@@ -25,12 +25,15 @@ class SourceContextBuilder:
         project_path: str,
         display_path: str | None = None,
         patch_path: str | None = None,
+        runtime_hotspots: list[dict[str, Any]] | None = None,
         max_chars: int = 12000,
     ):
         self.project_path = project_path
         self.display_path = display_path or project_path
         self.patch_path = patch_path or os.path.basename(project_path)
         self.max_chars = max_chars
+        self.runtime_hotspots = runtime_hotspots or []
+        self.runtime_hotspots_by_name = self._runtime_hotspot_map()
         self.source = self._read_source(project_path)
         self.lines = self.source.splitlines()
         self.tree = self._parse_source(self.source)
@@ -78,8 +81,12 @@ class SourceContextBuilder:
             f"Total lines: {len(self.lines)}",
             f"Imports: {', '.join(self.imports[:12]) if self.imports else 'none'}",
             f"Globals/constants: {', '.join(self.globals[:12]) if self.globals else 'none'}",
-            "Definitions:",
         ]
+        runtime_lines = self._runtime_hotspot_lines()
+        if runtime_lines:
+            lines.append("Runtime hotspots from function profiling:")
+            lines.extend(runtime_lines)
+        lines.append("Definitions:")
         for definition in definitions[:42]:
             lines.append(
                 "- "
@@ -88,6 +95,7 @@ class SourceContextBuilder:
                 f"score={definition.score} "
                 f"tags={','.join(definition.tags) or 'none'} "
                 f"calls={','.join(definition.calls[:8]) or 'none'}"
+                f"{self._runtime_hint(definition)}"
             )
         if len(definitions) > 42:
             lines.append(f"- ... {len(definitions) - 42} more definitions omitted")
@@ -96,6 +104,7 @@ class SourceContextBuilder:
             lines.append(
                 f"{index}. {definition.name} lines {definition.start_line}-{definition.end_line} "
                 f"score={definition.score} tags={','.join(definition.tags) or 'none'}"
+                f"{self._runtime_hint(definition)}"
             )
         lines.append(
             "Use exact excerpt sections for patches; do not patch code that is only present in the outline."
@@ -108,6 +117,7 @@ class SourceContextBuilder:
             f"File: {self.display_path}\n"
             f"Patch path: {self.patch_path}\n"
             f"Symbol: {definition.name} lines {definition.start_line}-{definition.end_line}\n"
+            f"{self._runtime_exact_line(definition)}"
             "```python\n"
             f"{self._definition_source(definition)}\n"
             "```"
@@ -124,6 +134,7 @@ class SourceContextBuilder:
             f"File: {self.display_path}\n"
             f"Patch path: {self.patch_path}\n"
             f"Symbol: {definition.name} lines {definition.start_line}-{definition.end_line}\n"
+            f"{self._runtime_exact_line(definition)}"
             "```python\n"
             f"{preview}\n"
             "```"
@@ -181,7 +192,12 @@ class SourceContextBuilder:
     def _top_candidates(self, count: int) -> list[DefinitionSummary]:
         return sorted(
             (definition for definition in self.definitions if definition.kind in {"function", "method"}),
-            key=lambda item: (item.score, item.end_line - item.start_line),
+            key=lambda item: (
+                self._runtime_score(item) > 0.0,
+                self._runtime_score(item),
+                item.score,
+                item.end_line - item.start_line,
+            ),
             reverse=True,
         )[:count]
 
@@ -209,6 +225,8 @@ class SourceContextBuilder:
         if _is_low_value_aggregation_name(name):
             score -= 80
             tags.append("final_aggregation")
+        if self._runtime_hotspot_for_name(name):
+            tags.append("runtime_hotspot")
         return DefinitionSummary(
             name=name,
             kind=kind,
@@ -218,6 +236,91 @@ class SourceContextBuilder:
             tags=tuple(tags),
             calls=tuple(sorted(metrics.calls))[:14],
         )
+
+    def _runtime_hotspot_map(self) -> dict[str, dict[str, Any]]:
+        mapping: dict[str, dict[str, Any]] = {}
+        for hotspot in self.runtime_hotspots:
+            if not isinstance(hotspot, dict):
+                continue
+            for key in self._hotspot_name_keys(hotspot):
+                mapping.setdefault(key, hotspot)
+        return mapping
+
+    def _hotspot_name_keys(self, hotspot: dict[str, Any]) -> set[str]:
+        function = str(hotspot.get("function") or "").strip()
+        if not function:
+            return set()
+        keys = {function, function.lower()}
+        short = function.rsplit(".", 1)[-1]
+        keys.update({short, short.lower()})
+        return {key for key in keys if key}
+
+    def _runtime_hotspot_for(self, definition: DefinitionSummary) -> dict[str, Any] | None:
+        return self._runtime_hotspot_for_name(definition.name)
+
+    def _runtime_hotspot_for_name(self, name: str) -> dict[str, Any] | None:
+        keys = [
+            name,
+            name.lower(),
+            name.rsplit(".", 1)[-1],
+            name.rsplit(".", 1)[-1].lower(),
+        ]
+        for key in keys:
+            hotspot = self.runtime_hotspots_by_name.get(key)
+            if hotspot:
+                return hotspot
+        return None
+
+    def _runtime_score(self, definition: DefinitionSummary) -> float:
+        hotspot = self._runtime_hotspot_for(definition)
+        if not hotspot:
+            return 0.0
+        value = hotspot.get("average_cumtime")
+        return float(value) if isinstance(value, (int, float)) else 0.0
+
+    def _runtime_percent(self, definition: DefinitionSummary) -> float | None:
+        hotspot = self._runtime_hotspot_for(definition)
+        if not hotspot:
+            return None
+        value = hotspot.get("average_percent_cumtime")
+        return float(value) if isinstance(value, (int, float)) else None
+
+    def _runtime_hint(self, definition: DefinitionSummary) -> str:
+        cumtime = self._runtime_score(definition)
+        if cumtime <= 0.0:
+            return ""
+        percent = self._runtime_percent(definition)
+        if percent is None:
+            return f" runtime_cumtime={cumtime:.6f}s"
+        return f" runtime_cumtime={cumtime:.6f}s runtime_share={percent:.2f}%"
+
+    def _runtime_exact_line(self, definition: DefinitionSummary) -> str:
+        hint = self._runtime_hint(definition).strip()
+        return f"Runtime profile: {hint}\n" if hint else ""
+
+    def _runtime_hotspot_lines(self) -> list[str]:
+        lines: list[str] = []
+        for index, hotspot in enumerate(self.runtime_hotspots[:8], start=1):
+            if not isinstance(hotspot, dict):
+                continue
+            function = hotspot.get("function")
+            if not function:
+                continue
+            line = hotspot.get("line")
+            cumtime = hotspot.get("average_cumtime")
+            percent = hotspot.get("average_percent_cumtime")
+            calls = hotspot.get("average_primitive_calls")
+            parts = [f"{index}. {function}"]
+            if isinstance(line, int):
+                parts.append(f"line={line}")
+            if isinstance(cumtime, (int, float)):
+                parts.append(f"cumtime={float(cumtime):.6f}s")
+            if isinstance(percent, (int, float)):
+                parts.append(f"share={float(percent):.2f}%")
+            if isinstance(calls, (int, float)):
+                parts.append(f"calls={float(calls):.1f}")
+            lines.append(" ".join(parts))
+        return lines
 
     def _collect_imports(self) -> list[str]:
         if self.tree is None:

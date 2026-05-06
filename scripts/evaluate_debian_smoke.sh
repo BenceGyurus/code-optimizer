@@ -13,6 +13,7 @@ OUTPUT_DIR="${2:-results/debian-smoke-$(basename "${PROJECT}" .py)}"
 PROJECT_FILE="$(basename "${PROJECT}")"
 PYTHON_BIN="${PYTHON_BIN:-${REPO_ROOT}/.venv/bin/python}"
 RUN_REPETITIONS="${RUN_REPETITIONS:-15}"
+FUNCTION_PROFILE_REPETITIONS="${FUNCTION_PROFILE_REPETITIONS:-1}"
 OLLAMA_MODEL_ID="${OLLAMA_MODEL_ID:-qwen2.5-coder:7b}"
 EFFECTIVE_PROVIDER_MODELS="${PROVIDER_MODELS:-openrouter=openai/gpt-oss-120b:free}"
 EFFECTIVE_PROMPT_PACKS="${PROMPT_PACKS:-knowledge_gen}"
@@ -107,6 +108,8 @@ fi
   --test-command "${TEST_COMMAND}" \
   --benchmark-command "\"${PYTHON_BIN}\" ${PROJECT_FILE} --skip-tests --repetitions 1" \
   --profile-command "perf stat -e ${PERF_EVENTS} -- \"${PYTHON_BIN}\" ${PROJECT_FILE} --skip-tests --repetitions 1" \
+  --function-profile-command "\"${PYTHON_BIN}\" -m cProfile -s cumulative ${PROJECT_FILE} --skip-tests --repetitions 1" \
+  --function-profile-repetitions "${FUNCTION_PROFILE_REPETITIONS}" \
   --output-dir "${OUTPUT_DIR}" \
   --max-llm-calls 14 \
   --max-tool-calls 28 \

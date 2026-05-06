@@ -38,8 +38,10 @@ class Orchestrator:
                  test_command: Optional[str] = None,
                  benchmark_command: Optional[str] = None,
                  profile_command: Optional[str] = None,
+                 function_profile_command: Optional[str] = None,
                  runtime_repetitions: int = 1,
                  hardware_repetitions: int = 1,
+                 function_profile_repetitions: int = 1,
                  allow_deterministic_fallback: bool = False,
                  output_dir: str = "results",
                  model: Optional[str] = None,
@@ -64,9 +66,11 @@ class Orchestrator:
             "benchmark_cmd": benchmark_command,
             "bench_cmd": benchmark_command,
             "profile_cmd": profile_command,
+            "function_profile_cmd": function_profile_command,
             "patch_cwd": self.workspace_root if self.project_path != self.original_project_path else None,
             "runtime_repetitions": runtime_repetitions,
             "hardware_repetitions": hardware_repetitions,
+            "function_profile_repetitions": function_profile_repetitions,
             "allow_deterministic_fallback": allow_deterministic_fallback,
         }
         self.session_state = SessionState(
@@ -412,6 +416,9 @@ class Orchestrator:
                 self.session_state.best_result = output
             elif action_name == "profile_execution":
                 self.session_state.checkpoint_metadata["baseline_profile"] = output
+                hotspots = output.get("function_hotspots")
+                if isinstance(hotspots, list):
+                    self.session_state.checkpoint_metadata["function_hotspots"] = hotspots
             elif action_name == "remeasure":
                 self.session_state.checkpoint_metadata["optimized_result"] = output
                 self.session_state.best_result = output
@@ -596,6 +603,7 @@ class Orchestrator:
             self.project_path,
             display_path=display_path,
             patch_path=self._patch_relative_path(),
+            runtime_hotspots=self._runtime_hotspots(),
             max_chars=limit,
         )
         return builder.render(self.state_machine.current_state, self.session_state.current_target)
@@ -605,6 +613,7 @@ class Orchestrator:
             self.project_path,
             display_path=self.original_project_path,
             patch_path=self._patch_relative_path(),
+            runtime_hotspots=self._runtime_hotspots(),
         )
         return self.source_context_builder.render(current_state, self.session_state.current_target)
 
@@ -613,6 +622,10 @@ class Orchestrator:
             root = self.workspace_root if self.project_path != self.original_project_path else os.path.dirname(self.project_path)
             return os.path.relpath(self.project_path, root)
         return "."
+
+    def _runtime_hotspots(self) -> list[dict[str, Any]]:
+        hotspots = self.session_state.checkpoint_metadata.get("function_hotspots")
+        return hotspots if isinstance(hotspots, list) else []
 
     def _render_state_prompt(self, current_state: State, context_vars: Dict[str, Any]) -> str:
         prompt_name = self._state_prompt_name(current_state)
@@ -635,8 +648,16 @@ class Orchestrator:
 
     def _action_guidance(self, current_state: State) -> str:
         if current_state == State.ANALYSIS_READY:
+            hotspot_guidance = ""
+            hotspots = self._runtime_hotspots()
+            if hotspots:
+                hotspot_guidance = (
+                    " Function profile hotspots are primary evidence; patch the selected hotspot or its direct bottleneck, "
+                    "not a statically complex but low-runtime helper."
+                )
             guidance = (
                 "You must propose a concrete patch when action is propose_change. "
+                f"{hotspot_guidance} "
                 "Use the source context. Prefer the largest nested loops, repeated rescans, dense numeric kernels, "
                 "branch-heavy dispatch, or allocation-heavy hot paths. Avoid final aggregation, checksum, summary, "
                 "reporting, validation, data-generation, or main/run functions unless profiling clearly proves they dominate runtime. "
@@ -658,10 +679,21 @@ class Orchestrator:
             return "If a patch exists, choose apply_and_verify. If no patch exists, choose rollback_to_checkpoint."
         if current_state == State.PROFILE_READY:
             rejected = self._rejected_targets()
+            hotspots = self._runtime_hotspots()
             guidance = (
                 "Choose analyze_candidate using the latest measurements and source outline. Prefer true compute kernels "
                 "over final aggregation, checksum, summary, validation, data-generation, or main/run functions."
             )
+            if hotspots:
+                preview = ", ".join(
+                    str(item.get("function"))
+                    for item in hotspots[:3]
+                    if isinstance(item, dict) and item.get("function")
+                )
+                guidance += (
+                    " Function runtime hotspots are primary evidence and override static source-context scores. "
+                    f"Prefer the highest cumulative hotspot not rejected: {preview}."
+                )
             if rejected:
                 guidance += f" Avoid these previously failed or regressed targets in this session: {', '.join(rejected)}."
             return guidance
@@ -677,7 +709,7 @@ class Orchestrator:
             current_state == State.BASELINE_READY
             and action_name == "analyze_candidate"
             and "profile_execution" in allowed_tools
-            and bool(self.command_args.get("profile_cmd"))
+            and bool(self.command_args.get("profile_cmd") or self.command_args.get("function_profile_cmd"))
             and "baseline_profile" not in self.session_state.checkpoint_metadata
         )
 

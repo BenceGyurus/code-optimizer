@@ -21,7 +21,34 @@ def write_charts(charts_dir: str, aggregate: Dict[str, object]) -> None:
     labels = [_run_label(row, index) for index, row in enumerate(rows, start=1)]
 
     _runtime_chart(plt, os.path.join(charts_dir, "runtime_baseline_vs_optimized.png"), labels, rows)
-    _speedup_chart(plt, os.path.join(charts_dir, "relative_speedup.png"), labels, rows)
+    _speedup_chart(
+        plt,
+        os.path.join(charts_dir, "relative_speedup.png"),
+        labels,
+        rows,
+        "final_relative_speedup",
+        "Relative Final Speedup",
+        "No final speedup data available.",
+        fallback_key="relative_speedup",
+    )
+    _speedup_chart(
+        plt,
+        os.path.join(charts_dir, "accepted_speedup.png"),
+        labels,
+        rows,
+        "accepted_relative_speedup",
+        "Accepted Speedup",
+        "No accepted speedup data available.",
+    )
+    _speedup_chart(
+        plt,
+        os.path.join(charts_dir, "attempted_speedup.png"),
+        labels,
+        rows,
+        "attempted_relative_speedup",
+        "Attempted Patch Speedup",
+        "No attempted patch speedup data available.",
+    )
     _before_after_chart(
         plt,
         os.path.join(charts_dir, "cache_hit_before_after.png"),
@@ -129,18 +156,32 @@ def _runtime_chart(plt, path: str, labels: Sequence[str], rows: Sequence[Dict[st
     plt.close(fig)
 
 
-def _speedup_chart(plt, path: str, labels: Sequence[str], rows: Sequence[Dict[str, object]]) -> None:
-    speedups = [_float_or_none(row.get("relative_speedup")) for row in rows]
+def _speedup_chart(
+    plt,
+    path: str,
+    labels: Sequence[str],
+    rows: Sequence[Dict[str, object]],
+    key: str,
+    title: str,
+    no_data_message: str,
+    fallback_key: str | None = None,
+) -> None:
+    speedups = [
+        _float_or_none(row.get(key))
+        if _float_or_none(row.get(key)) is not None
+        else _float_or_none(row.get(fallback_key)) if fallback_key else None
+        for row in rows
+    ]
     fig, ax = plt.subplots(figsize=(10, 5))
     if not any(value is not None for value in speedups):
-        _draw_no_data(ax, "No speedup data available.")
+        _draw_no_data(ax, no_data_message)
     else:
         positions = list(range(len(labels)))
         ax.bar(positions, _missing_as_nan(speedups), color="#16a34a")
         ax.axhline(1.0, color="#111827", linestyle="--", linewidth=1)
         ax.set_xticks(positions, labels, rotation=20, ha="right")
         ax.set_ylabel("speedup")
-        ax.set_title("Relative Final Speedup")
+        ax.set_title(title)
         ax.grid(axis="y", alpha=0.25)
     fig.tight_layout()
     fig.savefig(path, dpi=160)

@@ -57,8 +57,8 @@ def _summarize_for_prompt(value: Any) -> Any:
             if key == "patch" and isinstance(item, str):
                 summarized["patch_summary"] = _summarize_patch(item)
                 continue
-            if key == "runs" and isinstance(item, list):
-                summarized["runs"] = _summarize_runs(item)
+            if key in {"runs", "function_profile_runs"} and isinstance(item, list):
+                summarized[key] = _summarize_runs(item)
                 continue
             if key in {"stdout", "stderr", "output", "error"} and isinstance(item, str):
                 summarized[key] = _summarize_text(item)
