@@ -15,8 +15,8 @@ PYTHON_BIN="${PYTHON_BIN:-${REPO_ROOT}/.venv/bin/python}"
 RUN_REPETITIONS="${RUN_REPETITIONS:-15}"
 FUNCTION_PROFILE_REPETITIONS="${FUNCTION_PROFILE_REPETITIONS:-1}"
 OLLAMA_MODEL_ID="${OLLAMA_MODEL_ID:-qwen2.5-coder:7b}"
-EFFECTIVE_PROVIDER_MODELS="${PROVIDER_MODELS:-openrouter=google/gemini-3.1-pro-preview,openrouter=anthropic/claude-sonnet-4.6,openrouter=openai/gpt-5.4,openrouter=openai/gpt-oss-120b,openrouter=moonshotai/kimi-k2.6,openrouter=openai/gpt-5.3-codex,openrouter=minimax/minimax-m2.7,openrouter=google/gemini-3-flash-preview,openrouter=deepseek/deepseek-v3.2,ollama=${OLLAMA_MODEL_ID}}"
-EFFECTIVE_PROMPT_PACKS="${PROMPT_PACKS:-default,hardware_focus,role_create,zero_shot,one_shot,few_shot,agentic,reasoning_goal,cot,least_to_most,prompt_chaining,structured_tags,concise,knowledge_gen,self_refine,hypothesis_driven,negative_constraints}"
+EFFECTIVE_PROVIDER_MODELS="${PROVIDER_MODELS:-openrouter=openai/gpt-oss-120b,openrouter=google/gemini-3.1-pro-preview,openrouter=openai/gpt-5.3-codex,ollama=${OLLAMA_MODEL_ID}}"
+EFFECTIVE_PROMPT_PACKS="${PROMPT_PACKS:-zero_shot,knowledge_gen,hardware_focus,hypothesis_driven,self_refine,few_shot}"
 
 if [[ ! -x "${PYTHON_BIN}" ]]; then
   echo "Python interpreter not found: ${PYTHON_BIN}" >&2
