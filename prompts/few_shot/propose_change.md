@@ -2,9 +2,9 @@ Propose a patch for `{{current_target}}` using the output style shown below.
 
 Return exactly one JSON object.
 Example when no concrete safe patch can be produced:
-{"action":"propose_change","args":{"target":"selected_hotspot","strategy":"small semantics-preserving optimization","patch":"","rationale":"Empty patch avoids an invalid placeholder."},"reason":"No safe concrete patch available."}
+{"action":"propose_change","args":{"target":"{{current_target}}","strategy":"no safe code change from visible source","patch":"","rationale":"Visible source does not support a safe semantics-preserving patch."},"reason":"Avoid an unsafe or placeholder patch."}
 
-Do not copy the example target. Do not emit placeholder patch text.
+Use the current target. Do not emit placeholder patch text.
 
 Schema:
 {

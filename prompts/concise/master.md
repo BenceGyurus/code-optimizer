@@ -11,7 +11,10 @@ Runtime facts:
 - It reads `action`, `args`, and `reason`.
 - This pack is executed as master prompt plus decision prompt.
 - `latest_result` and similar fields are JSON strings.
-- `source_context` may be missing or truncated.
+- Source context may be truncated. Patch only code visible in it.
+
+Source:
+{{source_context}}
 
 Return valid JSON only.
 

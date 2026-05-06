@@ -14,4 +14,10 @@ Select one concrete optimization target from the tagged evidence.
 }
 </output_schema>
 
+<budget>
+limits={{guardrail_limits}}
+usage={{budget_status}}
+If budget is tight, choose the strongest concrete target from current evidence instead of requesting more exploration.
+</budget>
+
 Return only the JSON object.

@@ -29,9 +29,9 @@ Output:
 {"action":"apply_and_verify","args":{},"reason":"Apply the stored patch now."}
 
 # Example C
-Input summary: state=ANALYSIS_READY, allowed=propose_change, target=selected_hotspot
+Input summary: state=REMEASURED, allowed=evaluate_result, latest_result shows speedup above target
 Output:
-{"action":"propose_change","args":{"target":"selected_hotspot","strategy":"small semantics-preserving optimization","patch":"","rationale":"Empty patch is safer than a placeholder."},"reason":"No safe concrete patch available."}
+{"action":"evaluate_result","args":{"continue_optimization":false,"target_speedup":1.01},"reason":"Measured speedup clears the target."}
 
 ## Budget Limits
 Limits: {{guardrail_limits}}

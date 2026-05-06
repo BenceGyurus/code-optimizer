@@ -13,4 +13,10 @@ Compare latest optimized measurement against baseline and decide whether to stop
 }
 </output_schema>
 
+<budget>
+limits={{guardrail_limits}}
+usage={{budget_status}}
+Stop when the measured result is good enough or budget is tight; continue only if another high-confidence target remains.
+</budget>
+
 Return only the JSON object.

@@ -17,4 +17,10 @@ Propose one minimal safe patch for current_target.
 }
 </output_schema>
 
+<budget>
+limits={{guardrail_limits}}
+usage={{budget_status}}
+Prefer one concrete, semantics-preserving patch over exploration. If unsafe, return an empty patch rather than placeholder text.
+</budget>
+
 Return only the JSON object.

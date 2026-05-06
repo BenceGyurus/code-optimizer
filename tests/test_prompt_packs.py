@@ -57,7 +57,7 @@ def test_prompt_templates_do_not_embed_benchmark_file_names():
 
 
 def test_prompt_templates_do_not_use_placeholder_patch_examples():
-    forbidden_fragments = ('"patch":"diff --git ..."', "patch\":\"diff --git ...")
+    forbidden_fragments = ('"patch":"diff --git ..."', "patch\":\"diff --git ...", "selected_hotspot")
 
     for path in PROMPTS_DIR.rglob("*"):
         if not path.is_file() or path.suffix not in {".md", ".yaml"}:
@@ -89,6 +89,19 @@ def test_propose_change_prompts_prefer_structured_patch_format():
     for path in PROMPTS_DIR.glob("*/propose_change.md"):
         text = path.read_text(encoding="utf-8")
         assert "*** Begin Patch" in text, f"structured patch guidance missing from {path}"
+
+
+def test_master_prompts_include_source_context_placeholder():
+    for path in PROMPTS_DIR.glob("*/master.md"):
+        text = path.read_text(encoding="utf-8")
+        assert "{{source_context}}" in text, f"source context placeholder missing from {path}"
+
+
+def test_structured_tag_action_prompts_include_budget_context():
+    for name in ["analyze_candidate", "propose_change", "evaluate_result"]:
+        text = (PROMPTS_DIR / "structured_tags" / f"{name}.md").read_text(encoding="utf-8")
+        assert "{{guardrail_limits}}" in text
+        assert "{{budget_status}}" in text
 
 
 def test_strategy_markers_remain_distinct():

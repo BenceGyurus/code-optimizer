@@ -565,3 +565,52 @@ def test_action_guidance_is_appended_even_when_master_omits_placeholder(tmp_path
 
     assert "# Action Guidance" in provider.last_prompt
     assert "Avoid cosmetic micro-optimizations" in provider.last_prompt
+
+
+def test_state_specific_action_prompt_is_included(tmp_path):
+    project_path = _project_file(tmp_path)
+    provider = CapturePromptProvider(
+        responses=[
+            json.dumps(
+                {
+                    "action": "propose_change",
+                    "args": {"target": "placeholder", "strategy": "none", "patch": "", "rationale": "no safe patch"},
+                    "reason": "capture prompt",
+                }
+            )
+        ]
+    )
+    orchestrator = Orchestrator(
+        project_path=str(project_path),
+        provider=provider,
+        prompt_pack=_prompt_pack(),
+        guardrails_config=GuardrailsConfig(max_llm_calls=1, max_tool_calls=1),
+        interactive=False,
+        output_dir=str(tmp_path / "results"),
+    )
+    orchestrator.state_machine._current_state = State.ANALYSIS_READY
+    orchestrator.session_state.current_target = "placeholder"
+
+    orchestrator._step()
+
+    assert "# State-Specific Prompt: propose_change" in provider.last_prompt
+    assert "Propose a minimal structured patch" in provider.last_prompt
+    assert '"target": "placeholder"' in provider.last_prompt
+
+
+def test_state_prompt_mapping_is_only_used_for_single_purpose_states(tmp_path):
+    project_path = _project_file(tmp_path)
+    orchestrator = Orchestrator(
+        project_path=str(project_path),
+        provider=MockProvider(),
+        prompt_pack=_prompt_pack(),
+        guardrails_config=GuardrailsConfig(max_llm_calls=1, max_tool_calls=1),
+        interactive=False,
+        output_dir=str(tmp_path / "results"),
+    )
+
+    assert orchestrator._state_prompt_name(State.INIT) is None
+    assert orchestrator._state_prompt_name(State.BASELINE_READY) is None
+    assert orchestrator._state_prompt_name(State.PROFILE_READY) == "analyze_candidate"
+    assert orchestrator._state_prompt_name(State.ANALYSIS_READY) == "propose_change"
+    assert orchestrator._state_prompt_name(State.REMEASURED) == "evaluate_result"

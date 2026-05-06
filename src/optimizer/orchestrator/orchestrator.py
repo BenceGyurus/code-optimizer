@@ -134,9 +134,10 @@ class Orchestrator:
         
         rendered_master = self.context_builder.render_prompt(master_prompt, context_vars)
         rendered_decision = self.context_builder.render_prompt(decision_prompt, context_vars)
+        rendered_state_prompt = self._render_state_prompt(current_state, context_vars)
         guidance = str(context_vars.get("action_guidance") or "").strip()
         guidance_block = f"\n\n# Action Guidance\n{guidance}" if guidance else ""
-        full_prompt = f"{rendered_master}{guidance_block}\n\n{rendered_decision}"
+        full_prompt = f"{rendered_master}{guidance_block}{rendered_state_prompt}\n\n{rendered_decision}"
         
         response = None
         try:
@@ -612,6 +613,25 @@ class Orchestrator:
             root = self.workspace_root if self.project_path != self.original_project_path else os.path.dirname(self.project_path)
             return os.path.relpath(self.project_path, root)
         return "."
+
+    def _render_state_prompt(self, current_state: State, context_vars: Dict[str, Any]) -> str:
+        prompt_name = self._state_prompt_name(current_state)
+        if not prompt_name:
+            return ""
+        prompt = self.prompt_pack.get_prompt(prompt_name)
+        if not prompt:
+            return ""
+        rendered = self.context_builder.render_prompt(prompt, context_vars).strip()
+        if not rendered:
+            return ""
+        return f"\n\n# State-Specific Prompt: {prompt_name}\n{rendered}"
+
+    def _state_prompt_name(self, current_state: State) -> Optional[str]:
+        return {
+            State.PROFILE_READY: "analyze_candidate",
+            State.ANALYSIS_READY: "propose_change",
+            State.REMEASURED: "evaluate_result",
+        }.get(current_state)
 
     def _action_guidance(self, current_state: State) -> str:
         if current_state == State.ANALYSIS_READY:
