@@ -6,11 +6,11 @@ REPO_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
 
 PROJECT="${1:-}"
 if [[ -z "${PROJECT}" ]]; then
-  echo "Usage: $0 <project.py> [output_dir]" >&2
+  echo "Usage: $0 <project.py|project_dir> [output_dir]" >&2
   exit 1
 fi
-OUTPUT_DIR="${2:-results/debian-smoke-$(basename "${PROJECT}" .py)}"
-PROJECT_FILE="$(basename "${PROJECT}")"
+PROJECT_BASENAME="$(basename "${PROJECT}")"
+OUTPUT_DIR="${2:-results/debian-smoke-${PROJECT_BASENAME%.py}}"
 PYTHON_BIN="${PYTHON_BIN:-${REPO_ROOT}/.venv/bin/python}"
 RUN_REPETITIONS="${RUN_REPETITIONS:-15}"
 FUNCTION_PROFILE_REPETITIONS="${FUNCTION_PROFILE_REPETITIONS:-1}"
@@ -48,10 +48,37 @@ export PYTHONPATH="${REPO_ROOT}/src${PYTHONPATH:+:${PYTHONPATH}}"
 mkdir -p "${MPLCONFIGDIR}" "${XDG_CACHE_HOME}"
 cd "${REPO_ROOT}"
 
-TEST_COMMAND="\"${PYTHON_BIN}\" \"${REPO_ROOT}/scripts/repeat_unittest_summary.py\" --pattern \"${PROJECT_FILE}\" --repetitions ${RUN_REPETITIONS}"
-
-if [[ ! -f "${PROJECT}" ]]; then
-  echo "Project file not found: ${PROJECT}" >&2
+if [[ -f "${PROJECT}" ]]; then
+  PROJECT_FILE="$(basename "${PROJECT}")"
+  TEST_COMMAND="\"${PYTHON_BIN}\" \"${REPO_ROOT}/scripts/repeat_unittest_summary.py\" --pattern \"${PROJECT_FILE}\" --repetitions ${RUN_REPETITIONS}"
+  BENCHMARK_COMMAND="\"${PYTHON_BIN}\" ${PROJECT_FILE} --skip-tests --repetitions 1"
+  PROFILE_TARGET_COMMAND="\"${PYTHON_BIN}\" ${PROJECT_FILE} --skip-tests --repetitions 1"
+  FUNCTION_PROFILE_COMMAND="\"${PYTHON_BIN}\" -m cProfile -s cumulative ${PROJECT_FILE} --skip-tests --repetitions 1"
+elif [[ -d "${PROJECT}" ]]; then
+  PROJECT_MODULE="${PROJECT_MODULE:-}"
+  if [[ -z "${PROJECT_MODULE}" ]]; then
+    if [[ -f "${PROJECT}/__main__.py" ]]; then
+      PROJECT_MODULE="$(basename "${PROJECT}")"
+    else
+      MAIN_MODULES=()
+      while IFS= read -r module_dir; do
+        MAIN_MODULES+=("$(basename "$(dirname "${module_dir}")")")
+      done < <(find "${PROJECT}" -mindepth 2 -maxdepth 2 -type f -name "__main__.py" | sort)
+      if [[ ${#MAIN_MODULES[@]} -eq 1 ]]; then
+        PROJECT_MODULE="${MAIN_MODULES[0]}"
+      fi
+    fi
+  fi
+  if [[ -z "${PROJECT_MODULE}" ]]; then
+    echo "Could not infer project module for directory ${PROJECT}. Set PROJECT_MODULE, for example PROJECT_MODULE=market_sim." >&2
+    exit 1
+  fi
+  TEST_COMMAND="\"${PYTHON_BIN}\" \"${REPO_ROOT}/scripts/repeat_unittest_summary.py\" --start-dir . --pattern \"test_*.py\" --repetitions ${RUN_REPETITIONS}"
+  BENCHMARK_COMMAND="\"${PYTHON_BIN}\" -m ${PROJECT_MODULE} --skip-tests --repetitions 1"
+  PROFILE_TARGET_COMMAND="\"${PYTHON_BIN}\" -m ${PROJECT_MODULE} --skip-tests --repetitions 1"
+  FUNCTION_PROFILE_COMMAND="\"${PYTHON_BIN}\" -m cProfile -s cumulative -m ${PROJECT_MODULE} --skip-tests --repetitions 1"
+else
+  echo "Project path not found: ${PROJECT}" >&2
   exit 1
 fi
 
@@ -106,9 +133,9 @@ fi
   --runtime-repetitions "${RUN_REPETITIONS}" \
   --hardware-repetitions "${RUN_REPETITIONS}" \
   --test-command "${TEST_COMMAND}" \
-  --benchmark-command "\"${PYTHON_BIN}\" ${PROJECT_FILE} --skip-tests --repetitions 1" \
-  --profile-command "perf stat -e ${PERF_EVENTS} -- \"${PYTHON_BIN}\" ${PROJECT_FILE} --skip-tests --repetitions 1" \
-  --function-profile-command "\"${PYTHON_BIN}\" -m cProfile -s cumulative ${PROJECT_FILE} --skip-tests --repetitions 1" \
+  --benchmark-command "${BENCHMARK_COMMAND}" \
+  --profile-command "perf stat -e ${PERF_EVENTS} -- ${PROFILE_TARGET_COMMAND}" \
+  --function-profile-command "${FUNCTION_PROFILE_COMMAND}" \
   --function-profile-repetitions "${FUNCTION_PROFILE_REPETITIONS}" \
   --output-dir "${OUTPUT_DIR}" \
   --max-llm-calls 14 \

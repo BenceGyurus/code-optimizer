@@ -130,7 +130,7 @@ Included packs:
 
 Debian helper scripts:
 
-- `scripts/evaluate_debian_smoke.sh`: one low-cost sanity run, defaults to `openrouter=openai/gpt-oss-120b:free` and `knowledge_gen`.
+- `scripts/evaluate_debian_smoke.sh`: one low-cost sanity run for a single `.py` file or a package directory, defaults to `openrouter=openai/gpt-oss-120b:free` and `knowledge_gen`.
 - `scripts/evaluate_debian_full.sh`: full OpenRouter + Ollama matrix. Override `PROVIDER_MODELS`, `PROMPT_PACKS`, or `RUN_REPETITIONS` to run a smaller pilot before the expensive full experiment.
 
 ## Results
