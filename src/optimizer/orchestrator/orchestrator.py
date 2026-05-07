@@ -67,7 +67,7 @@ class Orchestrator:
             "bench_cmd": benchmark_command,
             "profile_cmd": profile_command,
             "function_profile_cmd": function_profile_command,
-            "patch_cwd": self.workspace_root if self.project_path != self.original_project_path else None,
+            "patch_cwd": self._patch_workspace_cwd(),
             "runtime_repetitions": runtime_repetitions,
             "hardware_repetitions": hardware_repetitions,
             "function_profile_repetitions": function_profile_repetitions,
@@ -569,10 +569,39 @@ class Orchestrator:
         return reduced
 
     def _prepare_project_workspace(self, project_path: str) -> str:
+        source = os.path.abspath(project_path)
+        if os.path.isdir(project_path):
+            relative_path = self._stable_relative_path(source)
+            destination = os.path.join(self.workspace_root, relative_path)
+            shutil.copytree(
+                source,
+                destination,
+                ignore=shutil.ignore_patterns(
+                    ".git",
+                    "__pycache__",
+                    ".venv",
+                    ".pytest_cache",
+                    "results",
+                    "*.pyc",
+                    ".DS_Store",
+                ),
+                dirs_exist_ok=True,
+            )
+            subprocess.run(["git", "init", "-q"], cwd=destination, check=False)
+            self.artifact_store.save_named_yaml(
+                "workspace.yaml",
+                {
+                    "original_project_path": project_path,
+                    "workspace_root": self.workspace_root,
+                    "workspace_project_path": destination,
+                    "mode": "copy_tree",
+                },
+            )
+            return destination
+
         if not os.path.isfile(project_path):
             return project_path
 
-        source = os.path.abspath(project_path)
         relative_path = self._stable_relative_path(source)
         destination = os.path.join(self.workspace_root, relative_path)
         os.makedirs(os.path.dirname(destination), exist_ok=True)
@@ -597,6 +626,13 @@ class Orchestrator:
         if relative_path.startswith("..") or os.path.isabs(relative_path):
             return os.path.basename(source)
         return relative_path
+
+    def _patch_workspace_cwd(self) -> Optional[str]:
+        if self.project_path == self.original_project_path:
+            return None
+        if os.path.isdir(self.project_path):
+            return self.project_path
+        return self.workspace_root
 
     def _load_source_context(self, limit: int = 14000, display_path: Optional[str] = None) -> str:
         builder = SourceContextBuilder(

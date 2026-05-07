@@ -27,6 +27,15 @@ EXPECTED_PACKS = {
     "zero_shot",
 }
 
+FULL_SCRIPT_DEFAULT_PACKS = {
+    "zero_shot",
+    "knowledge_gen",
+    "hardware_focus",
+    "hypothesis_driven",
+    "self_refine",
+    "few_shot",
+}
+
 
 def _load_pack(name: str):
     loader = PromptLoader(str(PROMPTS_DIR))
@@ -139,8 +148,8 @@ def test_strategy_markers_remain_distinct():
     assert "Hard Constraints" in negative_constraints_master
 
 
-def test_full_debian_script_default_prompt_matrix_includes_new_packs():
+def test_full_debian_script_default_prompt_matrix_uses_curated_packs():
     script_text = FULL_SCRIPT.read_text(encoding="utf-8")
 
-    for name in EXPECTED_PACKS:
+    for name in FULL_SCRIPT_DEFAULT_PACKS:
         assert name in script_text

@@ -133,3 +133,39 @@ def test_source_context_prioritizes_runtime_hotspots(tmp_path: Path) -> None:
     assert top_section.strip().startswith("1. cheap")
     assert "runtime_hotspot" in context
     assert "Runtime profile: runtime_cumtime=2.500000s runtime_share=80.00%" in context
+
+
+def test_source_context_builds_multifile_directory_context(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    package = project / "package"
+    package.mkdir(parents=True)
+    (package / "alpha.py").write_text(SOURCE, encoding="utf-8")
+    (package / "beta.py").write_text(
+        """
+def transform(values):
+    total = 0
+    for value in values:
+        total += value * value
+    return total
+""".strip(),
+        encoding="utf-8",
+    )
+    (project / "test_alpha.py").write_text("def test_placeholder():\n    assert True\n", encoding="utf-8")
+
+    context = SourceContextBuilder(str(project), display_path="project", max_chars=8000).render(
+        State.PROFILE_READY,
+        target=None,
+    )
+
+    assert "Files: 2 python files" in context
+    assert "package/alpha.py" in context
+    assert "package/beta.py" in context
+    assert "test_alpha.py" not in context
+    assert "package/beta.py::transform" in context
+
+    focused = SourceContextBuilder(str(project), display_path="project", max_chars=8000).render(
+        State.ANALYSIS_READY,
+        target="package/beta.py::transform",
+    )
+    assert "Patch path: package/beta.py" in focused
+    assert "def transform(values):" in focused

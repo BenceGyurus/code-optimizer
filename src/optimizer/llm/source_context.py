@@ -10,6 +10,8 @@ from optimizer.orchestrator.state_machine import State
 class DefinitionSummary:
     name: str
     kind: str
+    file_path: str
+    patch_path: str
     start_line: int
     end_line: int
     score: int
@@ -34,17 +36,20 @@ class SourceContextBuilder:
         self.max_chars = max_chars
         self.runtime_hotspots = runtime_hotspots or []
         self.runtime_hotspots_by_name = self._runtime_hotspot_map()
-        self.source = self._read_source(project_path)
+        self.file_sources = self._read_python_sources(project_path)
+        self.file_lines = {path: source.splitlines() for path, source in self.file_sources.items()}
+        self.file_trees = {path: self._parse_source(source) for path, source in self.file_sources.items()}
+        self.source = self._single_source()
         self.lines = self.source.splitlines()
-        self.tree = self._parse_source(self.source)
+        self.tree = self._single_tree()
         self.definitions = self._collect_definitions()
         self.imports = self._collect_imports()
         self.globals = self._collect_globals()
 
     def render(self, current_state: State, target: str | None = None) -> str:
-        if not self.source:
+        if not self.file_sources:
             return "No source context provided."
-        if self.tree is None:
+        if not any(tree is not None for tree in self.file_trees.values()):
             return self._fallback_context()
 
         parts = [self._outline(current_state, target)]
@@ -63,25 +68,33 @@ class SourceContextBuilder:
         return self._fit("\n\n".join(part for part in parts if part.strip()))
 
     def _fallback_context(self) -> str:
-        content = self.source
+        content = self.source or "\n\n".join(
+            f"# File: {path}\n{source}" for path, source in self.file_sources.items()
+        )
         truncated = len(content) > self.max_chars
         if truncated:
             content = content[: self.max_chars] + "\n# ... truncated ..."
-        return f"File: {self.display_path}\nPatch path: {self.patch_path}\n```python\n{content}\n```"
+        return f"Project: {self.display_path}\nPatch root: {self.patch_path}\n```python\n{content}\n```"
 
     def _outline(self, current_state: State, target: str | None) -> str:
         definitions = sorted(self.definitions, key=lambda item: (item.start_line, item.name))
         top = self._top_candidates(6)
         lines = [
-            f"File: {self.display_path}",
-            f"Patch path: {self.patch_path}",
+            f"Project: {self.display_path}",
+            f"Patch root: {self.patch_path}",
             "Source context mode: compact AST outline plus focused excerpts.",
             f"State: {current_state.name}",
             f"Current target: {target or 'None'}",
-            f"Total lines: {len(self.lines)}",
+            f"Files: {len(self.file_sources)} python files, {sum(len(lines) for lines in self.file_lines.values())} total lines",
             f"Imports: {', '.join(self.imports[:12]) if self.imports else 'none'}",
             f"Globals/constants: {', '.join(self.globals[:12]) if self.globals else 'none'}",
         ]
+        lines.append("Project files:")
+        for path, file_lines in list(self.file_lines.items())[:18]:
+            definition_count = sum(1 for definition in self.definitions if definition.patch_path == path)
+            lines.append(f"- {path} lines={len(file_lines)} definitions={definition_count}")
+        if len(self.file_lines) > 18:
+            lines.append(f"- ... {len(self.file_lines) - 18} more files omitted")
         runtime_lines = self._runtime_hotspot_lines()
         if runtime_lines:
             lines.append("Runtime hotspots from function profiling:")
@@ -90,6 +103,7 @@ class SourceContextBuilder:
         for definition in definitions[:42]:
             lines.append(
                 "- "
+                f"{self._definition_prefix(definition)}"
                 f"{definition.kind} {definition.name} "
                 f"lines {definition.start_line}-{definition.end_line} "
                 f"score={definition.score} "
@@ -102,7 +116,7 @@ class SourceContextBuilder:
         lines.append("Top optimization candidates:")
         for index, definition in enumerate(top, start=1):
             lines.append(
-                f"{index}. {definition.name} lines {definition.start_line}-{definition.end_line} "
+                f"{index}. {self._definition_label(definition)} lines {definition.start_line}-{definition.end_line} "
                 f"score={definition.score} tags={','.join(definition.tags) or 'none'}"
                 f"{self._runtime_hint(definition)}"
             )
@@ -114,8 +128,8 @@ class SourceContextBuilder:
     def _exact_excerpt_section(self, title: str, definition: DefinitionSummary) -> str:
         return (
             f"{title}:\n"
-            f"File: {self.display_path}\n"
-            f"Patch path: {self.patch_path}\n"
+            f"File: {definition.file_path}\n"
+            f"Patch path: {definition.patch_path}\n"
             f"Symbol: {definition.name} lines {definition.start_line}-{definition.end_line}\n"
             f"{self._runtime_exact_line(definition)}"
             "```python\n"
@@ -171,19 +185,31 @@ class SourceContextBuilder:
         return text[: max(0, self.max_chars - len(marker))].rstrip() + marker
 
     def _definition_source(self, definition: DefinitionSummary) -> str:
-        return "\n".join(self.lines[definition.start_line - 1 : definition.end_line])
+        lines = self.file_lines.get(definition.patch_path, [])
+        return "\n".join(lines[definition.start_line - 1 : definition.end_line])
+
+    def _definition_label(self, definition: DefinitionSummary) -> str:
+        if len(self.file_sources) <= 1:
+            return definition.name
+        return f"{definition.patch_path}::{definition.name}"
+
+    def _definition_prefix(self, definition: DefinitionSummary) -> str:
+        if len(self.file_sources) <= 1:
+            return ""
+        return f"{definition.patch_path}::"
 
     def _find_definition(self, target: str | None) -> DefinitionSummary | None:
         normalized = (target or "").strip()
         if not normalized or normalized.lower() in {"none", "unspecified", "unknown", "hot path"}:
             return None
+        normalized_symbol = normalized.split("::", 1)[-1].split(":", 1)[-1]
         for definition in self.definitions:
-            if definition.name == normalized:
+            if definition.name == normalized or f"{definition.patch_path}::{definition.name}" == normalized:
                 return definition
         for definition in self.definitions:
-            if definition.name.rsplit(".", 1)[-1] == normalized:
+            if definition.name.rsplit(".", 1)[-1] == normalized_symbol:
                 return definition
-        lowered = normalized.lower()
+        lowered = normalized_symbol.lower()
         for definition in self.definitions:
             if definition.name.lower() == lowered or definition.name.rsplit(".", 1)[-1].lower() == lowered:
                 return definition
@@ -202,20 +228,21 @@ class SourceContextBuilder:
         )[:count]
 
     def _collect_definitions(self) -> list[DefinitionSummary]:
-        if self.tree is None:
-            return []
         definitions: list[DefinitionSummary] = []
-        for node in self.tree.body:
-            if isinstance(node, ast.ClassDef):
-                definitions.append(self._definition_summary(node, node.name, "class"))
-                for child in node.body:
-                    if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                        definitions.append(self._definition_summary(child, f"{node.name}.{child.name}", "method"))
-            elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                definitions.append(self._definition_summary(node, node.name, "function"))
+        for file_path, tree in self.file_trees.items():
+            if tree is None:
+                continue
+            for node in tree.body:
+                if isinstance(node, ast.ClassDef):
+                    definitions.append(self._definition_summary(node, node.name, "class", file_path))
+                    for child in node.body:
+                        if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                            definitions.append(self._definition_summary(child, f"{node.name}.{child.name}", "method", file_path))
+                elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    definitions.append(self._definition_summary(node, node.name, "function", file_path))
         return definitions
 
-    def _definition_summary(self, node: ast.AST, name: str, kind: str) -> DefinitionSummary:
+    def _definition_summary(self, node: ast.AST, name: str, kind: str, file_path: str) -> DefinitionSummary:
         start = getattr(node, "lineno", 1)
         end = getattr(node, "end_lineno", start)
         metrics = _DefinitionMetrics()
@@ -230,6 +257,8 @@ class SourceContextBuilder:
         return DefinitionSummary(
             name=name,
             kind=kind,
+            file_path=self._display_file_path(file_path),
+            patch_path=file_path,
             start_line=start,
             end_line=end,
             score=score,
@@ -323,32 +352,73 @@ class SourceContextBuilder:
         return lines
 
     def _collect_imports(self) -> list[str]:
-        if self.tree is None:
-            return []
         imports: list[str] = []
-        for node in self.tree.body:
-            if isinstance(node, ast.Import):
-                imports.extend(alias.name for alias in node.names)
-            elif isinstance(node, ast.ImportFrom):
-                module = "." * node.level + (node.module or "")
-                imports.extend(f"{module}.{alias.name}".strip(".") for alias in node.names)
+        for file_path, tree in self.file_trees.items():
+            if tree is None:
+                continue
+            for node in tree.body:
+                if isinstance(node, ast.Import):
+                    imports.extend(f"{file_path}:{alias.name}" for alias in node.names)
+                elif isinstance(node, ast.ImportFrom):
+                    module = "." * node.level + (node.module or "")
+                    imports.extend(f"{file_path}:{module}.{alias.name}".strip(".") for alias in node.names)
         return imports
 
     def _collect_globals(self) -> list[str]:
-        if self.tree is None:
-            return []
         names: list[str] = []
-        for node in self.tree.body:
-            if isinstance(node, ast.Assign):
-                names.extend(_assignment_names(node.targets))
-            elif isinstance(node, ast.AnnAssign):
-                names.extend(_assignment_names([node.target]))
+        for file_path, tree in self.file_trees.items():
+            if tree is None:
+                continue
+            for node in tree.body:
+                if isinstance(node, ast.Assign):
+                    names.extend(f"{file_path}:{name}" for name in _assignment_names(node.targets))
+                elif isinstance(node, ast.AnnAssign):
+                    names.extend(f"{file_path}:{name}" for name in _assignment_names([node.target]))
         return names
+
+    def _read_python_sources(self, path: str) -> dict[str, str]:
+        if os.path.isfile(path):
+            source = self._read_source(path)
+            return {self.patch_path: source} if source else {}
+        if not os.path.isdir(path):
+            return {}
+        sources: dict[str, str] = {}
+        for root, dirs, filenames in os.walk(path):
+            dirs[:] = [
+                item
+                for item in dirs
+                if item not in {".git", "__pycache__", ".venv", ".pytest_cache", "results"}
+                and not item.startswith(".")
+            ]
+            for filename in sorted(filenames):
+                if not filename.endswith(".py"):
+                    continue
+                full_path = os.path.join(root, filename)
+                relative_path = os.path.relpath(full_path, path).replace(os.sep, "/")
+                if _is_low_value_source_file(relative_path):
+                    continue
+                source = self._read_source(full_path)
+                if source:
+                    sources[relative_path] = source
+        return dict(sorted(sources.items()))
+
+    def _single_source(self) -> str:
+        if len(self.file_sources) != 1:
+            return ""
+        return next(iter(self.file_sources.values()))
+
+    def _single_tree(self) -> ast.AST | None:
+        if len(self.file_trees) != 1:
+            return None
+        return next(iter(self.file_trees.values()))
+
+    def _display_file_path(self, patch_path: str) -> str:
+        if os.path.isfile(self.project_path):
+            return self.display_path
+        return os.path.join(self.display_path, patch_path)
 
     @staticmethod
     def _read_source(path: str) -> str:
-        if not os.path.isfile(path):
-            return ""
         try:
             with open(path, "r", encoding="utf-8") as handle:
                 return handle.read()
@@ -472,6 +542,17 @@ def _is_low_value_aggregation_name(name: str) -> bool:
     prefixes = ("run_", "generate_", "build_", "make_", "print_", "format_", "summarize_")
     suffixes = ("_checksum", "_summary", "_report", "_validate", "_verify")
     return normalized in exact_names or normalized.startswith(prefixes) or normalized.endswith(suffixes)
+
+
+def _is_low_value_source_file(path: str) -> bool:
+    normalized = path.replace("\\", "/").lower()
+    basename = normalized.rsplit("/", 1)[-1]
+    return (
+        basename.startswith("test_")
+        or basename.endswith("_test.py")
+        or "/tests/" in f"/{normalized}"
+        or normalized.startswith("tests/")
+    )
 
 
 def _call_name(node: ast.AST) -> str | None:

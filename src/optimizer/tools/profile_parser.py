@@ -158,6 +158,17 @@ def summarize_function_profile_runs(runs: Iterable[Dict[str, object]], top_n: in
 
 def filter_project_function_hotspots(hotspots: Iterable[dict[str, object]], project_path: str) -> list[dict[str, object]]:
     """Prefer hotspots that belong to the optimized project file when possible."""
+    if os.path.isdir(project_path):
+        project_root = os.path.abspath(project_path)
+        filtered = []
+        for hotspot in hotspots:
+            file_name = str(hotspot.get("file") or "")
+            if _hotspot_file_in_project_dir(file_name, project_root):
+                filtered.append(hotspot)
+        project_hotspots = filtered or list(hotspots)
+        actionable = _actionable_function_hotspots(project_hotspots)
+        return actionable or project_hotspots
+
     project_name = os.path.basename(project_path)
     if not project_name:
         project_hotspots = list(hotspots)
@@ -305,6 +316,20 @@ def _is_non_actionable_function_name(name: str) -> bool:
     if short.startswith("test_") or short.startswith("generate_"):
         return True
     return any(part in short for part in NON_ACTIONABLE_NAME_PARTS)
+
+
+def _hotspot_file_in_project_dir(file_name: str, project_root: str) -> bool:
+    if not file_name:
+        return False
+    if file_name.startswith("<"):
+        return False
+    normalized = file_name.replace("\\", os.sep)
+    if os.path.isabs(normalized):
+        try:
+            return os.path.commonpath([os.path.abspath(normalized), project_root]) == project_root
+        except ValueError:
+            return False
+    return not normalized.startswith("..") and not normalized.startswith(os.sep)
 
 
 def _normalize_counter_name(name: str) -> Optional[str]:
