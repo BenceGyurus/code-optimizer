@@ -65,6 +65,157 @@ A mérések alapján a `hypothesis_driven` volt az egyik legjobban védhető pro
 | `evaluate_result.md` | Összeveti az elvárt és a mért eredményt, majd eldönti, hogy meg kell-e állni. |
 | `config.yaml` | A prompt pack neve, verziója és rövid leírása. |
 
+Azért prompt pack-et használtam, és nem egyetlen nagy promptot, mert a program nem egy darab választ kér a modelltől, hanem egy több lépésből álló folyamatot vezérel. Más instrukció kell akkor, amikor a modell még csak a következő toolt választja ki, más akkor, amikor célpontot elemez, más akkor, amikor patch-et ír, és megint más akkor, amikor az eredményt értékeli. Ha ez mind egy nagy promptban lenne, akkor több lenne az ismétlés, könnyebben összekeverednének a szerepek, és nehezebb lenne javítani egyetlen problémás részt. A prompt pack így moduláris: ugyanaz a rendszerlogika marad, de külön lehet finomítani a döntési, elemzési, patch-generálási és értékelési lépést. Ez a méréseknél is hasznos volt, mert így nem csak modelleket, hanem promptolási stratégiákat is össze lehetett hasonlítani.
+
+A `hypothesis_driven` prompt pack konkrét promptjai ezek voltak. A `{{...}}` jelölések sablonváltozók, ezeket a program futás közben tölti ki az aktuális állapottal, mérési eredményekkel, engedélyezett toolokkal és kódkontextussal.
+
+<details>
+<summary><code>master.md</code></summary>
+
+```markdown
+# Role
+You optimize by forming one measurement-backed hypothesis before each action.
+
+# Context
+- Project: {{project_name}}
+- State: {{current_state}}
+- Allowed actions: {{allowed_actions}}
+- Current target: {{current_target}}
+- Best result: {{best_result}}
+- Latest result: {{latest_result}}
+- Session summary: {{session_summary}}
+- Action guidance: {{action_guidance}}
+- Source context: {{source_context}}
+
+# Runtime Contract
+1. Return exactly one JSON object.
+2. The runtime reads only `action`, `args`, and `reason`.
+3. You may include `hypothesis` and `expected_signal` helper fields; they are ignored if the JSON stays valid.
+4. Tie each action to one expected measurable change in runtime or hardware metrics.
+5. Preserve mathematical output.
+
+## Budget Limits
+Limits: {{guardrail_limits}}
+Current usage: {{budget_status}}
+Do not assume unlimited retries or iterations. If budget is tight or progress is weak, choose the action that cleanly finishes the session.
+```
+
+</details>
+
+<details>
+<summary><code>decision.md</code></summary>
+
+```markdown
+Choose the next action from: {{allowed_actions}}.
+
+Return exactly one JSON object. No markdown.
+Use the real tool contracts:
+- `analyze_candidate`: `target`, `strategy`, `rationale`
+- `propose_change`: `target`, `strategy`, `patch`, `rationale`
+- `apply_and_verify`: usually `{}`
+- `evaluate_result`: usually `continue_optimization` and optional `target_speedup`
+
+Schema:
+{
+  "hypothesis": "short statement of the expected gain",
+  "expected_signal": "runtime or hardware metric expected to improve",
+  "action": "tool_name",
+  "args": { ... },
+  "reason": "short"
+}
+
+## Budget Limits
+Limits: {{guardrail_limits}}
+Current usage: {{budget_status}}
+Do not assume unlimited retries or iterations. If budget is tight or progress is weak, choose the action that cleanly finishes the session.
+```
+
+</details>
+
+<details>
+<summary><code>analyze_candidate.md</code></summary>
+
+```markdown
+Pick one hotspot and state a measurement-backed hypothesis for it.
+
+Return exactly one JSON object.
+Schema:
+{
+  "hypothesis": "why this hotspot should dominate the current metrics",
+  "expected_signal": "which metric should move if the hypothesis is right",
+  "action": "analyze_candidate",
+  "args": {
+    "target": "concrete file/function/subsystem",
+    "strategy": "hardware-first or algorithm-first strategy",
+    "rationale": "short reason"
+  },
+  "reason": "why this target is best now"
+}
+
+## Budget Limits
+Limits: {{guardrail_limits}}
+Current usage: {{budget_status}}
+Do not assume unlimited retries or iterations. If budget is tight or progress is weak, choose the action that cleanly finishes the session.
+```
+
+</details>
+
+<details>
+<summary><code>propose_change.md</code></summary>
+
+```markdown
+Propose a patch for `{{current_target}}` and state the expected measurable effect.
+
+Return exactly one JSON object.
+Schema:
+{
+  "hypothesis": "why this exact code change should help",
+  "expected_signal": "runtime, cache, branch, or allocation metric expected to improve",
+  "action": "propose_change",
+  "args": {
+    "target": "{{current_target}}",
+    "strategy": "chosen strategy",
+    "patch": "structured patch beginning with *** Begin Patch, or empty string",
+    "rationale": "short rationale"
+  },
+  "reason": "why this patch is safe"
+}
+
+## Budget Limits
+Limits: {{guardrail_limits}}
+Current usage: {{budget_status}}
+Do not assume unlimited retries or iterations. If budget is tight or progress is weak, choose the action that cleanly finishes the session.
+```
+
+</details>
+
+<details>
+<summary><code>evaluate_result.md</code></summary>
+
+```markdown
+Compare the observed metrics against the expected hypothesis and decide whether to continue.
+
+Return exactly one JSON object.
+Schema:
+{
+  "hypothesis": "what was expected to improve",
+  "expected_signal": "what metric was supposed to move",
+  "action": "evaluate_result",
+  "args": {
+    "continue_optimization": false,
+    "target_speedup": 1.01
+  },
+  "reason": "stop or continue rationale"
+}
+
+## Budget Limits
+Limits: {{guardrail_limits}}
+Current usage: {{budget_status}}
+Do not assume unlimited retries or iterations. If budget is tight or progress is weak, choose the action that cleanly finishes the session.
+```
+
+</details>
+
 ## Tesztkódok, futtatók és promptok
 
 A mérésekhez két fő tesztprogramot használtam. Az első a [heavy_compute.py](examples/heavy_compute.py), ami egy egyfájlos, számításigényes Python program saját unittest tesztekkel. Ezen jól lehetett mérni, hogy a modellek megtalálják-e az egyértelmű algoritmikus problémát, és tudnak-e úgy gyorsítani rajta, hogy közben a tesztek továbbra is átmenjenek. A második a [complex_pipeline](examples/complex_pipeline) mappa volt, ami már több fájlból álló program. Ennél külön tesztfájl is van: [test_market_sim.py](examples/complex_pipeline/test_market_sim.py). Ezt azért készítettem, mert a valóságban egy optimalizálás ritkán csak egyetlen fájlt érint, és itt már fontosabb volt, hogy a modell értse a fájlok közötti kapcsolatokat is.
