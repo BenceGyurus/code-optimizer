@@ -6,21 +6,19 @@
 
 Ennél a feladatnál azt próbáltam ki, hogy lehet-e LLM-eket nem csak sima kódgenerálásra használni, hanem egy mérhető kódoptimalizálási folyamat részeként. A lényeg az volt, hogy az AI ne csak „ránézésre” írjon át valamit, hanem először kapjon mérési adatokat, azok alapján válasszon célpontot, majd a módosítást a program tesztekkel és újraméréssel ellenőrizze. Így nem az számít, hogy a modell magabiztosan állítja-e, hogy gyorsított, hanem az, hogy a mérés ezt tényleg alátámasztja-e.
 
-A programot a saját instrukcióim és döntéseim alapján készítettem, de a megvalósításban nagyrészt Codexet használtam fejlesztőtársként. Ez nem úgy nézett ki, hogy egyszer beírtam egy nagy promptot és elkészült minden. Inkább sok kisebb körből állt: megfogalmaztam, milyen működést szeretnék, lefuttattam a programot, megnéztük az eredményeket, majd ezek alapján javítottunk rajta. A Codex főleg a kódolásban, refaktorálásban, promptok átírásában, shell scriptek elkészítésében és a dokumentáció összerakásában segített.
+A programot a saját instrukcióim és döntéseim alapján készítettem, de a megvalósításban nagyrészt Codexet használtam. Ez sok kisebb körből állt: megfogalmaztam, milyen működést szeretnék, lefuttattam a programot, megnéztük az eredményeket, majd ezek alapján javítottunk rajta. A Codex főleg a kódolásban, refaktorálásban, promptok átírásában, shell scriptek elkészítésében és a dokumentáció összerakásában segített.
 
 Közben két fő futtatási mód alakult ki. Az `optimizer run` egyetlen optimalizálási sessiont indít, vagyis egy modell egy prompt packkel megpróbál javítani egy projekten. Az `optimizer evaluate` ennél nagyobb: több modellt és több prompt pack-et futtat végig, majd ezek eredményeiből összehasonlítható mérési mátrixot készít. Nekem főleg ez volt érdekes, mert így nem csak egy-egy sikeres futást lehetett nézni, hanem azt is, hogy a különböző modellek és promptolási stratégiák mennyire stabilak.
 
 A futások végén minden külön mappába kerül: az egyes sessionök, az összesített `CSV` és `YAML` eredmények, a Markdown riport és a diagramok. A runtime és a hardveres mérések nem egyetlen futásból jönnek, hanem több ismétlés átlagából. A végső méréseknél például 15 futásból számoltam átlagot, mert egyetlen benchmark futás könnyen félrevezető lehet.
 
-Külön figyelni kellett arra is, hogy a modell ne tudjon végtelen ciklusba kerülni. Ehhez egy állapotgépet használtam: minden állapotban csak bizonyos toolok hívhatók meg. Baseline mérés előtt például nem lehet patch-et alkalmazni, patch után pedig kötelező a tesztelés. Emellett minden session kap limitet az LLM hívásokra, tool hívásokra és iterációkra (`--max-llm-calls`, `--max-tool-calls`, `--max-iterations`). Erre azért volt szükség, mert a korai próbáknál volt olyan modell, ami ugyanazt a lépést kérte újra és újra, vagy hibás JSON-t adott vissza. Ilyenkor a rendszer nem vár örökké, hanem megállítja a futást, rollbackel, vagy `DONE`/`FAILED` állapotba teszi a sessiont.
-
 ## A program működése
 
-Az egész program arra épül, hogy az AI ne közvetlenül, kontroll nélkül írja át a kódot. Inkább döntéstámogató szerepet kap egy olyan folyamatban, ahol előbb mérés van, és csak utána módosítás. A modell baseline futási időt, teszteredményt, profilozási adatokat, hardveres metrikákat és kódrészleteket kap. Ezek alapján kell kiválasztania, hol érdemes hozzányúlni.
+Az egész program arra épül, hogy az AI ne közvetlenül, kontroll nélkül írja át a kódot. Inkább döntéstámogató szerepet kap egy olyan folyamatban, ahol előbb mérés van, és csak utána módosítás. A modell baseline futási időt, teszteredményt, profilozási adatokat, hardveres metrikákat és kódrészleteket kap. Ezek alapján kell kiválasztania, hol érdemes hozzányúlni. Ehhez a tool-okat használ a program, ezek közül ő választja ki, hogy melyeket szeretné használni bizonyos kereteken belül.
 
 Ez azért fontos, mert optimalizálásnál könnyű rossz irányba indulni. Egy modell tud nagyon meggyőzően javasolni egy átírást, de attól még lehet, hogy a kód lassabb lesz, vagy megváltozik a viselkedése. Ezért a program nem azt várja, hogy a modell minél több fájlt írjon át, hanem azt, hogy találjon egy konkrét szűk keresztmetszetet, és arra adjon egy lehetőleg kicsi, ellenőrizhető javítást.
 
-Az optimalizálásnál pár egyszerű mérnöki szabályt próbáltam követni. Először algoritmikus javítást érdemes keresni, mert egy O(n²) megoldás O(n)-re cserélése általában többet ér, mint pár apró lokális gyorsítás. A változtatás legyen kicsi és célzott, ne írja át feleslegesen az egész programot. A viselkedés nem változhat meg, ezért minden patch után teszt fut. A legfontosabb mérőszám a runtime, a cache, L1, branch és LLC adatok pedig inkább magyarázó szerepet kapnak. Ez azért fontos, mert lehet, hogy a cache hit-rate kicsit rosszabb lesz, de a program mégis sokkal gyorsabb, ha közben jóval kevesebb munkát végez.
+Az optimalizálásnál pár egyszerű szabályt próbáltam követni. Először algoritmikus javítást érdemes keresni, mert egy O(n²) megoldás O(n)-re cserélése általában többet ér, mint pár apró lokális gyorsítás. A változtatás legyen kicsi és célzott, ne írja át feleslegesen az egész programot. A viselkedés nem változhat meg, ezért minden patch után teszt fut. A legfontosabb mérőszám a runtime, a cache, L1, branch és LLC adatok pedig inkább magyarázó szerepet kapnak. Ez azért fontos, mert lehet, hogy a cache hit-rate kicsit rosszabb lesz, de a program mégis sokkal gyorsabb, ha közben jóval kevesebb munkát végez.
 
 A modell nem kapja meg a teljes nyers logot, mert az gyorsan túl sok token lenne, főleg kisebb modelleknél. Ehelyett rövidített, strukturált adatokat kap: tesztösszefoglalót, benchmark átlagot/minimumot/maximumot, profilozási hotspotokat, hardveres metrikákat, aktuális állapotot, engedélyezett toolokat és célzott kódrészleteket. Többfájlos projektnél ezt kiegészíti a fájllista, a függvényvázlat és a szűkebb kódkontextus.
 
@@ -30,19 +28,21 @@ A kimenetből nem csak az derül ki, hogy sikerült-e egy futás. Látszik a pat
 
 Nálam ez volt a projekt egyik fontos része: nem csak az érdekelt, hogy egy modell egyszer tud-e gyorsítani, hanem az is, hogy ezt mennyi próbálkozással, mennyi toolhívással, mennyire stabilan és milyen promptolási stratégiával teszi meg.
 
-A CLI megkapja a projektet, a modellt vagy modelllistát, a prompt packeket, illetve a teszteléshez és méréshez használt parancsokat. Ezután minden optimalizálási próbához külön workspace készül a `results/` mappában. Ez praktikus biztonsági réteg: az AI nem az eredeti fájlokon dolgozik, hanem egy másolaton. Ha a patch rossz, lassabb, vagy elrontja a teszteket, az eredeti projekt nem sérül.
+A CLI megkapja a projektet, a modellt vagy modelllistát, a prompt packeket, illetve a teszteléshez és méréshez használt parancsokat. Ezután minden optimalizálási próbához külön workspace készül a `results/` mappában. Ez egy biztonsági réteg: az AI nem az eredeti fájlokon dolgozik, hanem egy másolaton. Ha a patch rossz, lassabb, vagy elrontja a teszteket, az eredeti projekt nem sérül.
 
 A session elején a program betölti az adott prompt pack-et. Ebben külön fájl van az általános szerepre, a döntésre, az elemzésre, a patch írására és az eredmény értékelésére. A modell minden lépésnél megkapja az aktuális állapotot, az engedélyezett műveleteket, a korábbi toolok rövidített eredményét és a mérési adatokat. Válaszként strukturált JSON-t kell adnia, például azt, hogy `run_baseline`, `profile_execution`, `propose_change` vagy `apply_and_verify` legyen a következő lépés. Így nem szabadon beszélget, hanem a program keretein belül dönt.
 
 Az első tényleges lépés a baseline mérés. Ez adja meg, hogy a kód milyen gyors és milyen hardveres mutatókat produkál az optimalizálás előtt. Ilyenkor lefutnak a tesztek, a benchmark, és ha be van állítva, akkor a hardveres profilozás is. A tesztek több ismétléssel futnak, de a modell ebből csak összefoglalót kap: hány futás ment át, mennyi volt az átlagos futásidő, volt-e hiba, illetve mennyi lett a benchmark átlaga. A `perf` kimenetnél ugyanez történik, csak ott a cache, branch és L1 jellegű adatokból számol átlagot a program.
 
-Ezután jön a profilozás és a célpont kiválasztása. Egyfájlos projektnél ez elég egyszerű, többfájlosnál viszont nem akartam az egész projektet egyben belerakni a promptba. Ilyenkor a program inkább fájllistát, függvényvázlatot, profilozási részleteket és célzott kódrészleteket ad. Ettől a kisebb modellek kevésbé vesznek el, a nagyobbak pedig jobban tudnak a tényleges hotspotra figyelni.
+Ezután jön a profilozás és a célpont kiválasztása. Egyfájlos projektnél ez elég egyszerű, többfájlosnál viszont nem akartam az egész projektet egyben belerakni a promptba. Ilyenkor a program inkább fájllistát, függvényvázlatot, profilozási részleteket és célzott kódrészleteket ad. Ettől a kisebb modellek kevésbé vesznek el a nagy kontextusban, a nagyobbak pedig jobban tudnak a tényleges hotspotra figyelni.
 
 Ha megvan a célpont, a modell a `propose_change` lépésben patch-et javasol. Ezt a program nem fogadja el azonnal. Először eltárolja, majd az `apply_and_verify` lépésben alkalmazza a workspace-ben, lefuttatja a teszteket, és csak akkor megy tovább, ha a kód helyes maradt. Ha a tesztek elbuknak, rollback történik. Ez több futásnál is hasznos volt, mert volt olyan modell, amelyik jó irányba indult, de egy apró szemantikai hibával már elrontotta volna a programot.
 
 Ha a patch átment a teszteken, a program újraméri az optimalizált kódot. Ugyanazok a benchmark és hardveres mérési parancsok futnak, ugyanannyi ismétléssel, mint baseline-nál. Ez azért fontos, mert így az előtte-utána összehasonlítás nem két külön módszerből jön, hanem ugyanabból a mérési folyamatból. Az `evaluate_result` ezután összeveti a két állapotot. Ha a gyorsulás elég jó, a session `DONE` állapotban zárul. Ha nincs javulás, vagy elfogyott a budget, akkor a futás megáll, és sikertelen vagy nem elég jó optimalizációként kerül a riportba.
 
 Az `evaluate` mód ugyanezt ismétli végig több modellre és prompt packre. Minden kombináció külön session, a végén pedig készül egy összesítés. Innen jön az `aggregated_results.csv`, az `aggregated_results.yaml`, a `report.md` és a `charts/` mappa. Ezekből lehet később megnézni, melyik modell mennyi toolt használt, hány LLM hívás kellett neki, sikeres volt-e a patch, mekkora gyorsulást ért el, és hogyan változtak a hardveres mutatók.
+
+Külön figyelni kellett arra is, hogy a modell ne tudjon végtelen ciklusba kerülni. Ehhez egy állapotgépet használtam: minden állapotban csak bizonyos toolok hívhatók meg. Baseline mérés előtt például nem lehet patch-et alkalmazni, patch után pedig kötelező a tesztelés. Emellett minden session kap limitet az LLM hívásokra, tool hívásokra és iterációkra (`--max-llm-calls`, `--max-tool-calls`, `--max-iterations`). Erre azért volt szükség, mert a korai próbáknál volt olyan modell, ami ugyanazt a lépést kérte újra és újra, vagy hibás JSON-t adott vissza. Ilyenkor a rendszer nem vár örökké, hanem megállítja a futást, rollbackel, vagy `DONE`/`FAILED` állapotba teszi a sessiont.
 
 ## A rendszer fő eszközei
 
@@ -81,7 +81,7 @@ Nem egyetlen nagy promptot használtam, hanem prompt packeket. Ennek az volt az 
 
 Ha ez egyetlen nagy promptban lenne, sokkal könnyebben összemosódnának a szerepek. A modell egyszerre próbálna stratégiai döntést hozni, kódot írni és eredményt értékelni, ami a korai futásoknál sok hibát okozott. A prompt packes felépítésnél viszont ugyanaz a rendszerlogika marad, de külön lehet finomítani a döntési, elemzési, patch-generálási és értékelési promptot.
 
-A `hypothesis_driven` prompt pack konkrét promptjait itt hagytam a dokumentációban is. A `{{...}}` részek sablonváltozók, ezeket futás közben tölti ki a program az aktuális állapottal, mérésekkel, tool listával és kódkontextussal.
+A `hypothesis_driven` prompt pack konkrét promptjait raktam a dokumentációban is. A `{{...}}` részek sablonváltozók, ezeket futás közben tölti ki a program az aktuális állapottal, mérésekkel, tool listával és kódkontextussal.
 
 <details>
 <summary><code>master.md</code></summary>
@@ -249,7 +249,7 @@ A promptok a [prompts](prompts) mappában vannak. A heavy mérésben főleg ezek
 
 ## Eredmények
 
-A teszteket Debian 12 alatt futtattam, mert a hardveres mérésekhez Linuxos `perf` countereket használtam. Az OpenRouteres modellek külső szolgáltatáson keresztül mentek, a self-hostolt Qwen 2.5 Coder 7B viszont helyben futott, egy NVIDIA P104-100 videókártyán, 8 GB VRAM-mal. Ez azért lényeges, mert lokális modellnél nem csak maga a modell számít, hanem az is, milyen gép szolgálja ki.
+A teszteket Debian 12 alatt futtattam, mert a hardveres mérésekhez Linuxos `perf` countereket használtam. Az OpenRouteres modellek külső szolgáltatáson keresztül mentek, a self-hostolt Qwen 2.5 Coder 7B viszont helyben futott, egy NVIDIA P104-100 videókártyán, 8 GB VRAM-mal.
 
 A végső teszteknél kétféle kód szerepelt. A `heavy_compute.py` egyfájlos, erősen számításigényes példa volt. Itt a legerősebb modellek szinte mindig a `segmented_prefix_sums_slow` részt találták meg. Ebben a függvényben az volt a lényeg, hogy a program újra és újra kiszámolt olyan részösszegeket, amelyeket futó összeggel sokkal olcsóbban is lehetett volna kezelni.
 
