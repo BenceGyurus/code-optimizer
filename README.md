@@ -249,7 +249,7 @@ A promptok a [prompts](prompts) mappában vannak. A heavy mérésben főleg ezek
 
 ## Eredmények
 
-A teszteket Debian 12 alatt futtattam, mert a hardveres mérésekhez Linuxos `perf` countereket használtam. Az OpenRouteres modellek külső szolgáltatáson keresztül mentek, a self-hostolt Qwen 2.5 Coder 7B viszont helyben futott, egy NVIDIA P104-100 videókártyán, 8 GB VRAM-mal.
+A teszteket Debian 12 alatt futtattam, mert a hardveres mérésekhez Linuxos `perf` countereket használtam. Az OpenRouteres modellek külső szolgáltatáson keresztül mentek és a Gemini 3.1 pro-t, ChatGPT 5.3 Codex-et és a gpt-oss:120b-t használtam, a self-hostolt Qwen 2.5 Coder 7B viszont helyben futott, egy NVIDIA P104-100 videókártyán, 8 GB VRAM-mal.
 
 A végső teszteknél kétféle kód szerepelt. A `heavy_compute.py` egyfájlos, erősen számításigényes példa volt. Itt a legerősebb modellek szinte mindig a `segmented_prefix_sums_slow` részt találták meg. Ebben a függvényben az volt a lényeg, hogy a program újra és újra kiszámolt olyan részösszegeket, amelyeket futó összeggel sokkal olcsóbban is lehetett volna kezelni.
 
